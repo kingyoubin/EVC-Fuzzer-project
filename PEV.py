@@ -71,7 +71,7 @@ class PEV:
 
     def start(self):
         # Initialize the smbus for I2C commands
-        self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+        # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00) PWM 사용시 설치
 
         self.toggleProximity()
         self.doSLAC()
@@ -100,13 +100,13 @@ class PEV:
     def setState(self, state: PEVState):
         if state == PEVState.A:
             print("INFO (PEV) : Going to state A")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF) PWM 사용시 설치
         elif state == PEVState.B:
             print("INFO (PEV) : Going to state B")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1) PWM 사용시 설치
         elif state == PEVState.C:
             print("INFO (PEV) : Going to state C")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2) PWM 사용시 설치
 
     def toggleProximity(self, t: int = 5):
         self.openProximity()
