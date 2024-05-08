@@ -645,7 +645,7 @@ class _TCPHandler:
                     self.xml.PreChargeRequest()
             elif "PreChargeRes" in name:
                 currentVoltage = int(root[1][0][2][2].text)
-                if abs(currentVoltage - 400) < 10:
+                if abs(currentVoltage - 4000) < 10:
                     self.xml.PowerDeliveryRequest()
                 else:
                     self.xml.PreChargeRequest()
