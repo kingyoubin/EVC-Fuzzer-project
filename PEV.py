@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 import binascii
 import os.path
 import random
-from smbus import SMBus
+# from smbus import SMBus PWM 사용시 설치
 import argparse
 
 
