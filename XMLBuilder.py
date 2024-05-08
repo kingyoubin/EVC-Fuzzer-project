@@ -330,7 +330,7 @@ class XMLBuilder:
         self.EVRESSSOC.text = "10"
         self.TargetVoltageMultiplier.text = "-1"
         self.TargetVoltageUnit.text = "V"
-        self.TargetVoltageValue.text = "4000"
+        self.TargetVoltageValue.text = "400"
         self.TargetCurrentMultiplier.text = "0"
         self.TargetCurrentUnit.text = "A"
         self.TargetCurrentValue.text = "0"
