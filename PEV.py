@@ -59,7 +59,7 @@ class PEV:
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
-        self.bus = SMBus(1)
+        # self.bus = SMBus(1) PWM 사용시 설치
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
