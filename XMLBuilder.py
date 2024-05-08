@@ -330,7 +330,7 @@ class XMLBuilder:
         self.EVRESSSOC.text = "10"
         self.TargetVoltageMultiplier.text = "-1"
         self.TargetVoltageUnit.text = "V"
-        self.TargetVoltageValue.text = "400"
+        self.TargetVoltageValue.text = "370"
         self.TargetCurrentMultiplier.text = "0"
         self.TargetCurrentUnit.text = "A"
         self.TargetCurrentValue.text = "0"
@@ -357,7 +357,7 @@ class XMLBuilder:
         self.EVSENotification.text = "None"
         self.Multiplier.text = "0"
         self.Unit.text = "V"
-        self.Value.text = "370"
+        self.Value.text = "400"
 
     def PowerDeliveryRequest(self):
         self._V2GDINHeader()
