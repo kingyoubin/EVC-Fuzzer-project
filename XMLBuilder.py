@@ -459,7 +459,7 @@ class XMLBuilder:
         self.TimeToBulkSoCValue.text = "0"
         self.TargetVoltageMultiplier.text = "-1"
         self.TargetVoltageUnit.text = "V"
-        self.TargetVoltageValue.text = "4000"
+        self.TargetVoltageValue.text = "400"
 
     def CurrentDemandResponse(self):
         self._V2GDINHeader()
