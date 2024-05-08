@@ -22,7 +22,7 @@ from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 import xml.etree.ElementTree as ET
 import binascii
-from smbus import SMBus
+# from smbus import SMBus
 import argparse
 
 
@@ -62,7 +62,7 @@ class EVSE:
         self.tcp = _TCPHandler(self)
 
         # I2C bus for relays
-        self.bus = SMBus(1)
+        # self.bus = SMBus(1)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
