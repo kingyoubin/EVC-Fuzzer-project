@@ -575,7 +575,7 @@ class _TCPHandler:
             xml_string = self.getXMLFromPayload(payload)
         if xml_string is None:
             return
-        self.msgList[payload] = xml_strin
+        self.msgList[payload] = xml_string
 
         self.fuzz_payload(xml_string)
     
