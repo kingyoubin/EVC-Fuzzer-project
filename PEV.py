@@ -570,53 +570,18 @@ class _TCPHandler:
         payload = v2g.Payload
         # Save responses to decrease load on java webserver
         if payload in self.msgList.keys():
-            exi = self.msgList[payload]
+            xml_string = self.msgList[payload]
         else:
-            exi = self.getEXIFromPayload(payload)
-            if exi == None:
-                return
-            self.msgList[payload] = exi
+            xml_string = self.getXMLFromPayload(payload)
+        if xml_string is None:
+            return
+        self.msgList[payload] = xml_strin
 
-        self.fuzz_payload(exi)
+        self.fuzz_payload(xml_string)
+    
+
     
     def fuzz_payload(self, exi):
-        # EXI 데이터를 XML로 디코딩합니다.
-        xml_string = self.exi.decode(exi)
-        xml_builder = XMLBuilder(self.exi)
-        xml_builder.load_from_string(xml_string)
-
-        # 반복적으로 XML 데이터를 수정합니다.
-        for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
-            # 특정 데이터를 퍼징합니다.
-            self.mutate_xml(xml_builder)
-            # XML 데이터를 EXI 데이터로 변환합니다.
-            fuzzed_exi = xml_builder.getEXI()
-            payload = binascii.unhexlify(fuzzed_exi)
-            packet = self.buildV2G(payload)
-            sendp(packet, iface=self.iface, verbose=0)
-            time.sleep(0.1)  # Adjust the sleep time as needed
-
-    def mutate_xml(self, xml_builder):
-        # XML 데이터를 퍼징하는 함수입니다.
-        # Values 요소들만 퍼징합니다.
-        if xml_builder.root.tag.endswith("supportedAppProtocolReq"):
-            if xml_builder.ProtocolNamespace is not None:
-                xml_builder.ProtocolNamespace.text = "urn:din:70121:" + str(random.randint(2000, 3000)) + ":MsgDef"
-            if xml_builder.VersionNumberMajor is not None:
-                xml_builder.VersionNumberMajor.text = str(random.randint(0, 5))
-            if xml_builder.VersionNumberMinor is not None:
-                xml_builder.VersionNumberMinor.text = str(random.randint(0, 9))
-            if xml_builder.SchemaID is not None:
-                xml_builder.SchemaID.text = str(random.randint(0, 100))
-            if xml_builder.Priority is not None:
-                xml_builder.Priority.text = str(random.randint(0, 10))
-    
-    
-    
-    
-
-    
-    """def fuzz_payload(self, exi):
         # Generate and send fuzzed payload
         for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
             fuzzed_exi = self.mutate_exi(exi)
@@ -631,7 +596,7 @@ class _TCPHandler:
         for i in range(len(exi_bytes)):
             if random.random() < 0.1:  # 10% chance to mutate each byte
                 exi_bytes[i] = random.randint(0, 255)
-        return binascii.hexlify(exi_bytes).decode()"""
+        return binascii.hexlify(exi_bytes).decode()
 
     def buildV2G(self, payload):
         ethLayer = Ether()
@@ -655,19 +620,17 @@ class _TCPHandler:
 
         return ethLayer / ipLayer / tcpLayer / v2gLayer
 
-    def getEXIFromPayload(self, data):
+    def getXMLFromPayload(self, data):
         data = binascii.hexlify(data)
         xmlString = self.exi.decode(data)
-        # print(f"XML String: {xmlString}")
         root = ET.fromstring(xmlString)
 
         if root.text is None:
             if "AppProtocol" in root.tag:
                 self.xml.SessionSetupRequest()
-                return self.xml.getEXI()
+                return self.xml.getString()
 
             name = root[1][0].tag
-            # print(f"Response: {name}")
             if "SessionSetupRes" in name:
                 self.xml.ServiceDiscoveryRequest()
                 self.SessionID = root[0][0].text
@@ -678,10 +641,8 @@ class _TCPHandler:
             elif "ContractAuthenticationRes" in name:
                 if root[1][0][1].text == "Ongoing":
                     self.xml.ContractAuthenticationRequest()
-                    # print("INFO (PEV) : Sending Contract Authenication Request")
                     if self.pev.mode == RunMode.SCAN:
-                        # Start nmap scan while connection is kept alive
-                        if self.scanner == None:
+                        if self.scanner is None:
                             nmapMAC = self.pev.nmapMAC if self.pev.nmapMAC else self.destinationMAC
                             nmapIP = self.pev.nmapIP if self.pev.nmapIP else self.destinationIP
                             self.scanner = NMAPScanner(EmulatorType.PEV, self.pev.nmapPorts, self.iface, self.sourceMAC, self.sourceIP, nmapMAC, nmapIP)
@@ -705,21 +666,15 @@ class _TCPHandler:
                     self.xml.PowerDeliveryRequest()
                 else:
                     self.xml.PreChargeRequest()
-                    # self.prechargeCount = self.prechargeCount + 1
-            # Dont know if can get passed this point without providing actual voltage
             elif "PowerDeliveryRes" in name:
                 self.xml.CurrentDemandRequest()
             elif "CurrentDemandRes" in name:
                 self.xml.CurrentDemandRequest()
-                # self.xml.EVRESSSOC.text = str(random.randint(0,100))
-                # self.xml.EVRESSSOC.text = str(self.soc % 100)
-                # print(f"Current SOC: {self.soc}")
-                # self.soc = self.soc + 5
             else:
                 raise Exception(f'Packet type "{name}" not recognized')
 
             self.xml.SessionID.text = self.SessionID
-            return self.xml.getEXI()
+            return self.xml.getString()
 
     def handshake(self):
         while not self.startSniff:
