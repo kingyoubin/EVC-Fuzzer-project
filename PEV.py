@@ -581,22 +581,30 @@ class _TCPHandler:
     
 
     
-    def fuzz_payload(self, exi):
+    def fuzz_payload(self, xml_string):
         # Generate and send fuzzed payload
         for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
-            fuzzed_exi = self.mutate_exi(exi)
-            payload = binascii.unhexlify(fuzzed_exi)
+            fuzzed_xml = self.mutate_xml(xml_string)
+            payload = fuzzed_xml.encode()  # Convert the fuzzed XML string to bytes
             packet = self.buildV2G(payload)
             sendp(packet, iface=self.iface, verbose=0)
             time.sleep(0.1)  # Adjust the sleep time as needed
 
-    def mutate_exi(self, exi):
-        # Simple mutation function to fuzz the EXI data
-        exi_bytes = bytearray(binascii.unhexlify(exi))
-        for i in range(len(exi_bytes)):
-            if random.random() < 0.1:  # 10% chance to mutate each byte
-                exi_bytes[i] = random.randint(0, 255)
-        return binascii.hexlify(exi_bytes).decode()
+    def mutate_xml(self, xml_string):
+        try:
+            root = ET.fromstring(xml_string)
+            self.randomly_modify_xml(root)
+            return ET.tostring(root, encoding='unicode')
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+            return xml_string
+
+    def randomly_modify_xml(self, element):
+        for elem in element.iter():
+            if random.random() < 0.1:  # 10% chance to mutate each element
+                if elem.text:
+                    elem.text = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=len(elem.text)))
+
 
     def buildV2G(self, payload):
         ethLayer = Ether()
