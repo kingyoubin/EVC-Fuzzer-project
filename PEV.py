@@ -14,6 +14,10 @@ sys.path.append("./external_libs/V2GInjector/core")
 from threading import Thread
 from boofuzz import *
 import binascii
+from scapy.all import *
+import binascii
+import time
+import random
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
@@ -579,22 +583,21 @@ class _TCPHandler:
         self.fuzz_payload(exi)
     
     def fuzz_payload(self, exi):
-        def send_fuzzed_packet(target, fuzz_data_logger, session, sock):
-            payload = binascii.unhexlify(fuzz_data_logger.get_data())
+        # Generate and send fuzzed payload
+        for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
+            fuzzed_exi = self.mutate_exi(exi)
+            payload = binascii.unhexlify(fuzzed_exi)
             packet = self.buildV2G(payload)
             sendp(packet, iface=self.iface, verbose=0)
+            time.sleep(0.1)  # Adjust the sleep time as needed
 
-        session = Session(
-            target=Target(
-                connection=RawConnection(send_fuzzed_packet)
-            )
-        )
-
-        s_initialize("Fuzzed V2G Payload")
-        s_binary(exi)
-
-        session.connect(s_get("Fuzzed V2G Payload"))
-        session.fuzz()
+    def mutate_exi(self, exi):
+        # Simple mutation function to fuzz the EXI data
+        exi_bytes = bytearray(binascii.unhexlify(exi))
+        for i in range(len(exi_bytes)):
+            if random.random() < 0.1:  # 10% chance to mutate each byte
+                exi_bytes[i] = random.randint(0, 255)
+        return binascii.hexlify(exi_bytes).decode()
 
     def buildV2G(self, payload):
         ethLayer = Ether()
