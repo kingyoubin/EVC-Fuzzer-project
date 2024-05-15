@@ -14,10 +14,7 @@ sys.path.append("./external_libs/V2GInjector/core")
 from threading import Thread
 from boofuzz import *
 import binascii
-from scapy.all import *
-import binascii
-import time
-import random
+
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
@@ -583,6 +580,43 @@ class _TCPHandler:
         self.fuzz_payload(exi)
     
     def fuzz_payload(self, exi):
+        # EXI 데이터를 XML로 디코딩합니다.
+        xml_string = self.exi.decode(exi)
+        xml_builder = XMLBuilder(self.exi)
+        xml_builder.load_from_string(xml_string)
+
+        # 반복적으로 XML 데이터를 수정합니다.
+        for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
+            # 특정 데이터를 퍼징합니다.
+            self.mutate_xml(xml_builder)
+            # XML 데이터를 EXI 데이터로 변환합니다.
+            fuzzed_exi = xml_builder.getEXI()
+            payload = binascii.unhexlify(fuzzed_exi)
+            packet = self.buildV2G(payload)
+            sendp(packet, iface=self.iface, verbose=0)
+            time.sleep(0.1)  # Adjust the sleep time as needed
+
+    def mutate_xml(self, xml_builder):
+        # XML 데이터를 퍼징하는 함수입니다.
+        # Values 요소들만 퍼징합니다.
+        if xml_builder.root.tag.endswith("supportedAppProtocolReq"):
+            if xml_builder.ProtocolNamespace is not None:
+                xml_builder.ProtocolNamespace.text = "urn:din:70121:" + str(random.randint(2000, 3000)) + ":MsgDef"
+            if xml_builder.VersionNumberMajor is not None:
+                xml_builder.VersionNumberMajor.text = str(random.randint(0, 5))
+            if xml_builder.VersionNumberMinor is not None:
+                xml_builder.VersionNumberMinor.text = str(random.randint(0, 9))
+            if xml_builder.SchemaID is not None:
+                xml_builder.SchemaID.text = str(random.randint(0, 100))
+            if xml_builder.Priority is not None:
+                xml_builder.Priority.text = str(random.randint(0, 10))
+    
+    
+    
+    
+
+    
+    """def fuzz_payload(self, exi):
         # Generate and send fuzzed payload
         for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
             fuzzed_exi = self.mutate_exi(exi)
@@ -597,7 +631,7 @@ class _TCPHandler:
         for i in range(len(exi_bytes)):
             if random.random() < 0.1:  # 10% chance to mutate each byte
                 exi_bytes[i] = random.randint(0, 255)
-        return binascii.hexlify(exi_bytes).decode()
+        return binascii.hexlify(exi_bytes).decode()"""
 
     def buildV2G(self, payload):
         ethLayer = Ether()

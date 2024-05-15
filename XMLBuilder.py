@@ -20,6 +20,9 @@ from EmulatorEnum import *
 class XMLBuilder:
     def __init__(self, exi: EXIProcessor):
         self.exi = exi
+    
+    def load_from_string(self, xml_string):
+        self.root = ET.fromstring(xml_string)
 
     def SupportedAppProtocolRequest(self):
         self._cleanup()
