@@ -17,6 +17,7 @@ import time
 from EmulatorEnum import *
 
 
+
 class EXIProcessor:
     def __init__(self, protocol: Protocol):
         self.protocol = protocol
@@ -70,8 +71,15 @@ class EXIProcessor:
             req = requests.post(url=f"http://localhost:{self.port}/", headers={"Format": "XML"}, data=xmlString, timeout=2)
         except Timeout:
             print("ERROR: Connection to the java webserver timed out.")
+            return None
         except Exception as e:
             print(f"ERROR: XML string\n{xmlString}\ncaused exception\n{e}")
+            return None
+
+        # Ensure req is not None and req.text is not None
+        if req is None or req.text is None:
+            print("ERROR: Received None response from the java webserver")
+            return None
 
         # This occurs sometimes, specifically if the html body of the request is greater than 4096 bytes
         if req.text == "null":
