@@ -426,8 +426,8 @@ class _TCPHandler:
         )
         self.neighborSolicitationThread.start()
 
-        self.timeoutThread = Thread(target=self.checkForTimeout)
-        self.timeoutThread.start()
+        ## self.timeoutThread = Thread(target=self.checkForTimeout)
+        ## self.timeoutThread.start()
 
         while self.running:
             time.sleep(1)
