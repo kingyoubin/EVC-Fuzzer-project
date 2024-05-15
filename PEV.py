@@ -565,7 +565,7 @@ class _TCPHandler:
 
         self.lastMessageTime = time.time()
 
-        data = self.last_recv[Raw].load
+        """data = self.last_recv[Raw].load
         v2g = V2GTP(data)
         payload = v2g.Payload
         # Save responses to decrease load on java webserver
@@ -575,7 +575,12 @@ class _TCPHandler:
             xml_string = self.getXMLFromPayload(payload)
         if xml_string is None:
             return
-        self.msgList[payload] = xml_string
+        self.msgList[payload] = xml_string"""
+        handler = XMLBuilder()
+        handler.SupportedAppProtocolRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        print("Original XML:")
+        print(xml_string)
 
         self.fuzz_payload(xml_string)
     
