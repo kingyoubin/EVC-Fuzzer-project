@@ -600,10 +600,22 @@ class _TCPHandler:
             return xml_string
 
     def randomly_modify_xml(self, element):
+        # Modify only the specific elements
+        elements_to_modify = {
+            "ProtocolNamespace",
+            "VersionNumberMajor",
+            "VersionNumberMinor",
+            "SchemaID",
+            "Priority"
+        }
         for elem in element.iter():
-            if random.random() < 0.1:  # 10% chance to mutate each element
-                if elem.text:
-                    elem.text = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=len(elem.text)))
+            if elem.tag in elements_to_modify and elem.text:
+                elem.text = self.fuzz_value(elem.text)
+
+    def fuzz_value(self, value):
+        # Generate a random string of the same length as the original value
+        fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=len(value)))
+        return fuzzed_value
 
 
     def buildV2G(self, payload):
