@@ -576,6 +576,7 @@ class _TCPHandler:
         if xml_string is None:
             return
         self.msgList[payload] = xml_string"""
+        
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
@@ -820,6 +821,10 @@ class PacketHandler:
         self.VersionNumberMinor.text = "0"
         self.SchemaID.text = "1"
         self.Priority.text = "1"
+        
+    def _cleanup(self):
+        # 정리 작업을 수행하는 메서드 추가
+        pass
 
 
 if __name__ == "__main__":
