@@ -578,23 +578,23 @@ class _TCPHandler:
 
         self.fuzz_payload(exi)
     
-        def fuzz_payload(self, exi):
-            def send_fuzzed_packet(target, fuzz_data_logger, session, sock):
-                payload = binascii.unhexlify(fuzz_data_logger.get_data())
-                packet = self.buildV2G(payload)
-                sendp(packet, iface=self.iface, verbose=0)
+    def fuzz_payload(self, exi):
+        def send_fuzzed_packet(target, fuzz_data_logger, session, sock):
+            payload = binascii.unhexlify(fuzz_data_logger.get_data())
+            packet = self.buildV2G(payload)
+            sendp(packet, iface=self.iface, verbose=0)
 
-            session = Session(
-                target=Target(
-                    connection=RawConnection(send_fuzzed_packet)
-                )
+        session = Session(
+            target=Target(
+                connection=RawConnection(send_fuzzed_packet)
             )
+        )
 
-            s_initialize("Fuzzed V2G Payload")
-            s_binary(exi)
+        s_initialize("Fuzzed V2G Payload")
+        s_binary(exi)
 
-            session.connect(s_get("Fuzzed V2G Payload"))
-            session.fuzz()
+        session.connect(s_get("Fuzzed V2G Payload"))
+        session.fuzz()
 
     def buildV2G(self, payload):
         ethLayer = Ether()
