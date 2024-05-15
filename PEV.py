@@ -592,7 +592,7 @@ class _TCPHandler:
         # Generate and send fuzzed payload
         for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
             fuzzed_xml = self.mutate_xml(xml_string)
-            exi_payload = self.exi_processor.encode(fuzzed_xml)  # Convert the fuzzed XML string to EXI
+            exi_payload = self.exi.encode(fuzzed_xml)  # Convert the fuzzed XML string to EXI
             if exi_payload is not None:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
