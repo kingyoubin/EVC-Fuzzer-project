@@ -540,10 +540,17 @@ class XMLBuilder:
         print(r.toprettyxml())
 
     def getString(self):
-        return ET.tostring(self.root, encoding="UTF-8", method="xml").decode().replace("\n", "").replace("'", '"')
-
+        # None 값을 처리하여 유효한 XML 문자열을 반환하도록 수정
+        if self.root is not None:
+            return ET.tostring(self.root, encoding="UTF-8", method="xml").decode().replace("\n", "").replace("'", '"')
+        else:
+            return ""
     def getEXI(self):
-        return self.exi.encode(self.getString())
+        xml_string = self.getString()
+        # XML 문자열이 유효한지 확인
+        if not xml_string:
+            raise ValueError("Invalid XML string")
+        return self.exi.encode(xml_string)
 
     def _cleanup(self):
         for name in self.__dict__.copy().keys():
