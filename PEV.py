@@ -457,8 +457,8 @@ class _TCPHandler:
         self.handshakeThread = Thread(target=self.handshake)
         self.handshakeThread.start()
 
-        self.timeoutThread = Thread(target=self.checkForTimeout)
-        self.timeoutThread.start()
+        ## self.timeoutThread = Thread(target=self.checkForTimeout)
+        ## self.timeoutThread.start()
 
         self.neighborSolicitationThread = AsyncSniffer(
             iface=self.iface, lfilter=lambda x: x.haslayer("ICMPv6ND_NS") and x[ICMPv6ND_NS].tgt == self.sourceIP, prn=self.sendNeighborAdvertisement
