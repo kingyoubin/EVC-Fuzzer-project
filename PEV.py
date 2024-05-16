@@ -555,7 +555,7 @@ class _TCPHandler:
 
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
-            self.startSession()
+            ## self.startSession()
         if "F" in self.last_recv.flags:
             self.fin()
             return
