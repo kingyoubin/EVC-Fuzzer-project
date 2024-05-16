@@ -18,7 +18,6 @@ import binascii
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
-from XMLBuilder import XMLBuilder
 from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
