@@ -552,10 +552,10 @@ class _TCPHandler:
         self.last_recv = pkt
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
-
+        """
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
-            ## self.startSession()
+            self.startSession()
         if "F" in self.last_recv.flags:
             self.fin()
             return
@@ -563,7 +563,7 @@ class _TCPHandler:
             return
 
         self.lastMessageTime = time.time()
-
+        """
         """data = self.last_recv[Raw].load
         v2g = V2GTP(data)
         payload = v2g.Payload
