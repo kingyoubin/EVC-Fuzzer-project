@@ -423,7 +423,6 @@ class _TCPHandler:
         self.sessionID = "00"
 
         self.exi = self.pev.exi
-        self.xml = XMLBuilder(self.exi)
         self.msgList = {}
 
         self.stop = False
