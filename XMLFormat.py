@@ -528,5 +528,10 @@ class PacketHandler:
         self.ResponseCode.text = "OK"
         
     def _cleanup(self):
-        # 정리 작업을 수행하는 메서드 추가
-        pass
+        self.root = None
+        self.AppProtocol = None
+        self.ProtocolNamespace = None
+        self.VersionNumberMajor = None
+        self.VersionNumberMinor = None
+        self.SchemaID = None
+        self.Priority = None
