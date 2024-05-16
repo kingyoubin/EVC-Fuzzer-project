@@ -12,7 +12,6 @@ sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 
 from threading import Thread
-from boofuzz import *
 import binascii
 
 from layers.SECC import *
@@ -57,8 +56,8 @@ class PEV:
 
         self.exi = EXIProcessor(self.protocol)
         self.slac = _SLACHandler(self)
-        self.tcp = _TCPHandler(self)
-        self.xml = PacketHandler()
+        self.xml = PacketHandler()  # PacketHandler 객체 초기화
+        self.tcp = _TCPHandler(self)  # PacketHandler 객체 전달
 
         # I2C bus for relays
         # self.bus = SMBus(1)
