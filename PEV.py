@@ -58,7 +58,7 @@ class PEV:
         self.exi = EXIProcessor(self.protocol)
         self.slac = _SLACHandler(self)
         self.tcp = _TCPHandler(self)
-        self.xml = PacketHandler(self)
+        self.xml = PacketHandler()
 
         # I2C bus for relays
         # self.bus = SMBus(1)
