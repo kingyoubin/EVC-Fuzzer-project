@@ -1,11 +1,5 @@
-# AcCCS
-Access Capabilities for CCS (AcCCS - pronounced "access" /ˈakˌses/) provides a flexible and inexpensive solution to enable communications testing of various Electric Vehicle (EV) technologies that use the CCS charging standard(s).  This codebase is an example of tools and scripts capable of communicating with and emulating an Electric Vehicle Communications Controller (EVCC) and/or a Supply Equipment Communications Controller (SECC).
+# EVC-Fuzzer-project
 
-This project is the result of our efforts to find COTS hardware and existing open source software capable of communicating via HomePlug GreenPHY (HPGP) with CCS enabled vehicles and charging stations.  We are providing some basic scripts to emulate an EV (see [PEV.py](PEV.py)) or an EVSE (see [EVSE.py](EVSE.py)).  These two scripts utilize third-party open source projects that provide Scapy packet definitions for Layer 2 (HPGP - [layerscapy](/layerscapy/)) and Layer 3 (DIN/ISO - [layers](/layers/)). Our goal was to establish a persistent network connection with a target device so that we can test the device for network vulnerabilities.
-
-To enable some testing of the IPv6 endpoints, the emulator scripts provide the ability to perform some basic port scans of the target.  This functionality is available using command-line options of the emulator.  The emulators can be further enhanced for additional port scanning activities or even fuzz testing of the selected CCS protocol.
-
-The emulators utilize a Java program ([java_decoder](/java_decoder/)) to encode and decode the XML messages exchanged between an EV and EVSE.  This decoder is from the [V2Gdecoder](https://github.com/FlUxIuS/V2Gdecoder) project and has been patched to fix a couple of bugs identified during our testing.  The Java server is started automatically when executing one of the emulators.
 
 **Note:** This code was primarily developed and tested using the old DIN 70121 specification and schema. The newer ISO 15118-2:2010 standard is included but has not been tested.
 
@@ -27,21 +21,6 @@ If you encounter errors about git not locating specific repository versions, usi
 git submodule update --force --recursive --init --remote
 ```
 
-## Hardware Configuration
-
-Details regarding our current implementation and hardware configuration is found in the '''docs''' folder.
-
-The ```resources``` directory includes the schematics and design files to create the PWM board used to emulate the SECC.  The following shows how all of the hardware is currently setup in the AcCCS boxes.
-
-EVSE DEVOLO: [EVSE side configured dLAN Green Phy Eval Board](https://www.codico.com/en/evse-side-configured-dlan-green-phy-eval-board)\
-PEV DEVOLO: [PEV side configured dLAN Green Phy Eval Board](https://www.codico.com/en/pev-side-configured-dlan-green-phy-eval-board)\
-RASPBERRY PI: [Raspberry Pi 4 Model B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/)\
-RELAY: [4 Channel 5V Relay](https://www.sunfounder.com/products/4channel-relay-shield)\
-12V OUT: [12V Isolated DC/DC Converter](https://www.digikey.com/en/products/detail/cui-inc./PYBE30-Q24-S12-T/9859982)\
-5V OUT: [5V Isolated DC/DC Converter](https://www.digikey.com/en/products/detail/cui-inc/PYBE30-Q24-S5-T/9859981)\
-ETH: [USB to RJ45 Adapter](https://www.amazon.com/Gigabit-Adapter-CableCreation-Network-Supporting/dp/B07CKQY8HN)\
-555 Timer: [TLC555CP](https://www.digikey.com/en/products/detail/texas-instruments/TLC555CP/277502)\
-Op-Amp: [TLE2142AMJG](https://www.ti.com/product/TLE2142)
 
 The devices labeled ETH, RELAY, 5V OUT, 12V OUT, and RASPBERRY PI are generic devices so a specific brand is not required. Nevertheless, I have linked above the exact version of these devices we used in the AcCCS box. A brief description of each of these devices are as follows so that any devices that fits this description can probably be used with little to no alteration. Extra notes regarding the implementation and role of each device are also included.
 
