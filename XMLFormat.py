@@ -1,8 +1,4 @@
-"""
-    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
-"""
 
-# need to do this to import the custom SECC and V2G scapy layer
 import sys, os
 
 sys.path.append("./external_libs/HomePlugPWN")
@@ -14,13 +10,13 @@ from layers.V2G import *
 from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 
-# Used to build and encode XML tree into EXI string for layer 3 communication
 
 
-class XMLBuilder:
-    def __init__(self, exi: EXIProcessor):
-        self.exi = exi
-
+class PacketHandler:
+    def __init__(self):
+        # 초기화 코드 추가
+        pass
+    
     def SupportedAppProtocolRequest(self):
         self._cleanup()
         self.root = ET.Element("ns4:supportedAppProtocolReq")
@@ -530,28 +526,12 @@ class XMLBuilder:
 
         # Default Values
         self.ResponseCode.text = "OK"
-
-    def show(self):
-        s = ET.tostring(self.root, "UTF-8")
-        r = xml.dom.minidom.parseString(s)
-        print(r.toprettyxml())
-
-    def getString(self):
-        return ET.tostring(self.root, encoding="UTF-8", method="xml").decode().replace("\n", "").replace("'", '"')
-
-    def getEXI(self):
-        return self.exi.encode(self.getString())
-
+        
     def _cleanup(self):
-        for name in self.__dict__.copy().keys():
-            if name != "exi":
-                delattr(self, name)
-
-
-if __name__ == "__main__":
-    x = XMLBuilder(EXIProcessor(protocol=Protocol.DIN))
-    x.CurrentDemandRequest()
-    x.show()
-    print(x.getString() + "\n")
-    # exi = x.getEXI()
-    # print(binascii.unhexlify(exi))
+        self.root = None
+        self.AppProtocol = None
+        self.ProtocolNamespace = None
+        self.VersionNumberMajor = None
+        self.VersionNumberMinor = None
+        self.SchemaID = None
+        self.Priority = None

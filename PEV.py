@@ -12,14 +12,15 @@ sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 
 from threading import Thread
+import binascii
 
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
-from XMLBuilder import XMLBuilder
 from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
+from XMLFormat import PacketHandler
 import xml.etree.ElementTree as ET
 import binascii
 import os.path
@@ -54,12 +55,12 @@ class PEV:
         self.destinationPort = None
 
         self.exi = EXIProcessor(self.protocol)
-
         self.slac = _SLACHandler(self)
-        self.tcp = _TCPHandler(self)
+        self.xml = PacketHandler()  # PacketHandler 객체 초기화
+        self.tcp = _TCPHandler(self)  # PacketHandler 객체 전달
 
         # I2C bus for relays
-        self.bus = SMBus(1)
+        # self.bus = SMBus(1)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -71,7 +72,7 @@ class PEV:
 
     def start(self):
         # Initialize the smbus for I2C commands
-        self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
+        # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
         self.doSLAC()
@@ -100,13 +101,13 @@ class PEV:
     def setState(self, state: PEVState):
         if state == PEVState.A:
             print("INFO (PEV) : Going to state A")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
         elif state == PEVState.B:
             print("INFO (PEV) : Going to state B")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
         elif state == PEVState.C:
             print("INFO (PEV) : Going to state C")
-            self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
+            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
 
     def toggleProximity(self, t: int = 5):
         self.openProximity()
@@ -421,7 +422,7 @@ class _TCPHandler:
         self.sessionID = "00"
 
         self.exi = self.pev.exi
-        self.xml = XMLBuilder(self.exi)
+        self.xml = self.pev.xml
         self.msgList = {}
 
         self.stop = False
@@ -454,8 +455,8 @@ class _TCPHandler:
         self.handshakeThread = Thread(target=self.handshake)
         self.handshakeThread.start()
 
-        self.timeoutThread = Thread(target=self.checkForTimeout)
-        self.timeoutThread.start()
+        ## self.timeoutThread = Thread(target=self.checkForTimeout)
+        ## self.timeoutThread.start()
 
         self.neighborSolicitationThread = AsyncSniffer(
             iface=self.iface, lfilter=lambda x: x.haslayer("ICMPv6ND_NS") and x[ICMPv6ND_NS].tgt == self.sourceIP, prn=self.sendNeighborAdvertisement
@@ -551,7 +552,7 @@ class _TCPHandler:
         self.last_recv = pkt
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
-
+        """
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
             self.startSession()
@@ -562,20 +563,68 @@ class _TCPHandler:
             return
 
         self.lastMessageTime = time.time()
-
-        data = self.last_recv[Raw].load
+        """
+        """data = self.last_recv[Raw].load
         v2g = V2GTP(data)
         payload = v2g.Payload
         # Save responses to decrease load on java webserver
         if payload in self.msgList.keys():
-            exi = self.msgList[payload]
+            xml_string = self.msgList[payload]
         else:
-            exi = self.getEXIFromPayload(payload)
-            if exi == None:
-                return
-            self.msgList[payload] = exi
+            xml_string = self.getXMLFromPayload(payload)
+        if xml_string is None:
+            return
+        self.msgList[payload] = xml_string"""
+        
+        handler = PacketHandler()
+        handler.SupportedAppProtocolRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        print("Original XML:")
+        print(xml_string)
 
-        sendp(self.buildV2G(binascii.unhexlify(exi)), iface=self.iface, verbose=0)
+        self.fuzz_payload(xml_string)
+    
+
+    
+    def fuzz_payload(self, xml_string):
+        # Generate and send fuzzed payload
+        for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
+            fuzzed_xml = self.mutate_xml(xml_string)
+            print(fuzzed_xml)
+            exi_payload = self.exi.encode(fuzzed_xml)  # Convert the fuzzed XML string to EXI
+            if exi_payload is not None:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                sendp(packet, iface=self.iface, verbose=0)
+            time.sleep(0.1)
+
+    def mutate_xml(self, xml_string):
+        try:
+            root = ET.fromstring(xml_string)
+            self.randomly_modify_xml(root)
+            return ET.tostring(root, encoding='unicode')
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+            return xml_string
+
+    def randomly_modify_xml(self, element):
+        # Modify only the specific elements
+        elements_to_modify = {
+            "ProtocolNamespace",
+            "VersionNumberMajor",
+            "VersionNumberMinor",
+            "SchemaID",
+            "Priority"
+        }
+        for elem in element.iter():
+            if elem.tag in elements_to_modify and elem.text:
+                elem.text = self.fuzz_value(elem.text)
+
+    def fuzz_value(self, value):
+        # Generate a random string of the same length as the original value
+        fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=len(value)))
+        return fuzzed_value
+
 
     def buildV2G(self, payload):
         ethLayer = Ether()
@@ -599,19 +648,17 @@ class _TCPHandler:
 
         return ethLayer / ipLayer / tcpLayer / v2gLayer
 
-    def getEXIFromPayload(self, data):
+    def getXMLFromPayload(self, data):
         data = binascii.hexlify(data)
         xmlString = self.exi.decode(data)
-        # print(f"XML String: {xmlString}")
         root = ET.fromstring(xmlString)
 
         if root.text is None:
             if "AppProtocol" in root.tag:
                 self.xml.SessionSetupRequest()
-                return self.xml.getEXI()
+                return self.xml.getString()
 
             name = root[1][0].tag
-            # print(f"Response: {name}")
             if "SessionSetupRes" in name:
                 self.xml.ServiceDiscoveryRequest()
                 self.SessionID = root[0][0].text
@@ -622,10 +669,8 @@ class _TCPHandler:
             elif "ContractAuthenticationRes" in name:
                 if root[1][0][1].text == "Ongoing":
                     self.xml.ContractAuthenticationRequest()
-                    # print("INFO (PEV) : Sending Contract Authenication Request")
                     if self.pev.mode == RunMode.SCAN:
-                        # Start nmap scan while connection is kept alive
-                        if self.scanner == None:
+                        if self.scanner is None:
                             nmapMAC = self.pev.nmapMAC if self.pev.nmapMAC else self.destinationMAC
                             nmapIP = self.pev.nmapIP if self.pev.nmapIP else self.destinationIP
                             self.scanner = NMAPScanner(EmulatorType.PEV, self.pev.nmapPorts, self.iface, self.sourceMAC, self.sourceIP, nmapMAC, nmapIP)
@@ -649,21 +694,15 @@ class _TCPHandler:
                     self.xml.PowerDeliveryRequest()
                 else:
                     self.xml.PreChargeRequest()
-                    # self.prechargeCount = self.prechargeCount + 1
-            # Dont know if can get passed this point without providing actual voltage
             elif "PowerDeliveryRes" in name:
                 self.xml.CurrentDemandRequest()
             elif "CurrentDemandRes" in name:
                 self.xml.CurrentDemandRequest()
-                # self.xml.EVRESSSOC.text = str(random.randint(0,100))
-                # self.xml.EVRESSSOC.text = str(self.soc % 100)
-                # print(f"Current SOC: {self.soc}")
-                # self.soc = self.soc + 5
             else:
                 raise Exception(f'Packet type "{name}" not recognized')
 
             self.xml.SessionID.text = self.SessionID
-            return self.xml.getEXI()
+            return self.xml.getString()
 
     def handshake(self):
         while not self.startSniff:
@@ -758,7 +797,7 @@ class _TCPHandler:
 
         responsePacket = ethLayer / ipLayer / icmpLayer / optLayer
         return responsePacket
-
+    
 
 if __name__ == "__main__":
     # Parse arguements from command line
