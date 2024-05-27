@@ -553,7 +553,7 @@ class _TCPHandler:
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
         
-        
+        """
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
             self.startSession()
@@ -576,6 +576,7 @@ class _TCPHandler:
         if xml_string is None:
             return
         self.msgList[payload] = xml_string
+        """
         
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
@@ -585,7 +586,7 @@ class _TCPHandler:
             print("Original XML:")
             print(xml_string)
             self.fuzz_payload(xml_string)
-    
+        
 
     
     def fuzz_payload(self, xml_string):
@@ -598,7 +599,7 @@ class _TCPHandler:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
                 sendp(packet, iface=self.iface, verbose=0)
-            time.sleep(0.1)
+            time.sleep(1)
 
     def mutate_xml(self, xml_string):
         try:
