@@ -576,7 +576,7 @@ class _TCPHandler:
             return
         self.msgList[payload] = xml_string
         """
-        time.sleep(5)
+
         print("INFO (PEV) : Recieved SYNACK")
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
@@ -597,7 +597,7 @@ class _TCPHandler:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
                 sendp(packet, iface=self.iface, verbose=0)
-            time.sleep(1)
+            time.sleep(0.1)
 
     def mutate_xml(self, xml_string):
         try:
