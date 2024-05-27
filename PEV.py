@@ -555,13 +555,15 @@ class _TCPHandler:
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
             self.startSession()
+        
+        """
         if "F" in self.last_recv.flags:
             self.fin()
             return
         if "P" not in self.last_recv.flags:
             return
         
-        """
+        
         self.lastMessageTime = time.time()
         
         data = self.last_recv[Raw].load
@@ -577,7 +579,6 @@ class _TCPHandler:
         self.msgList[payload] = xml_string
         """
 
-        print("INFO (PEV) : Recieved SYNACK")
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
