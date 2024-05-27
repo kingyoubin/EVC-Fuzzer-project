@@ -526,6 +526,9 @@ class PacketHandler:
 
         # Default Values
         self.ResponseCode.text = "OK"
+    
+    def getEXI(self):
+        return self.exi.encode(self.getString())
         
     def _cleanup(self):
         self.root = None
