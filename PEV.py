@@ -544,16 +544,14 @@ class _TCPHandler:
             iface=self.iface,
             verbose=0,
         )
-        self.xml.SupportedAppProtocolRequest()
-        exi = self.xml.getEXI()
-        sendp(self.buildV2G(binascii.unhexlify(exi)), iface=self.iface, verbose=0)
+        
 
     def handlePacket(self, pkt):
         self.last_recv = pkt
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
         
-        """
+        
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
             self.startSession()
@@ -563,7 +561,7 @@ class _TCPHandler:
         if "P" not in self.last_recv.flags:
             return
         
-        
+        """
         self.lastMessageTime = time.time()
         
         data = self.last_recv[Raw].load
@@ -579,15 +577,13 @@ class _TCPHandler:
         self.msgList[payload] = xml_string
         """
         time.sleep(5)
-        
-        if self.last_recv.flags == 0x12:
-            print("INFO (PEV) : Recieved SYNACK")
-            handler = PacketHandler()
-            handler.SupportedAppProtocolRequest()
-            xml_string = ET.tostring(handler.root, encoding='unicode')
-            print("Original XML:")
-            print(xml_string)
-            self.fuzz_payload(xml_string)
+        print("INFO (PEV) : Recieved SYNACK")
+        handler = PacketHandler()
+        handler.SupportedAppProtocolRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        print("Original XML:")
+        print(xml_string)
+        self.fuzz_payload(xml_string)
         
 
     
