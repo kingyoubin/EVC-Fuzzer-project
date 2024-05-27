@@ -552,6 +552,7 @@ class _TCPHandler:
         self.last_recv = pkt
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
+        
         """
         if self.last_recv.flags == 0x12:
             print("INFO (PEV) : Recieved SYNACK")
@@ -563,8 +564,8 @@ class _TCPHandler:
             return
 
         self.lastMessageTime = time.time()
-        """
-        """data = self.last_recv[Raw].load
+        
+        data = self.last_recv[Raw].load
         v2g = V2GTP(data)
         payload = v2g.Payload
         # Save responses to decrease load on java webserver
@@ -576,13 +577,14 @@ class _TCPHandler:
             return
         self.msgList[payload] = xml_string"""
         
-        handler = PacketHandler()
-        handler.SupportedAppProtocolRequest()
-        xml_string = ET.tostring(handler.root, encoding='unicode')
-        print("Original XML:")
-        print(xml_string)
-
-        self.fuzz_payload(xml_string)
+        if self.last_recv.flags == 0x12:
+            print("INFO (PEV) : Recieved SYNACK")
+            handler = PacketHandler()
+            handler.SupportedAppProtocolRequest()
+            xml_string = ET.tostring(handler.root, encoding='unicode')
+            print("Original XML:")
+            print(xml_string)
+            self.fuzz_payload(xml_string)
     
 
     
