@@ -556,10 +556,7 @@ class _TCPHandler:
             self.startSession()
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
-        else:
-            # TCP payload processing
-            payload = pkt[TCP].payload.load if pkt[TCP].payload else b''
-            self.process_payload(payload)
+
 
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
@@ -567,7 +564,7 @@ class _TCPHandler:
         print("Original XML:")
         print(xml_string)
         self.fuzz_payload(xml_string)
-    
+    """
     def process_payload(self, payload):
         try:
             # EXI 데이터를 디코딩하여 XML 문자열로 변환합니다.
@@ -580,7 +577,7 @@ class _TCPHandler:
                 # 필요한 경우 XML 데이터를 추가로 처리할 수 있습니다.
         except Exception as e:
             print(f"Error processing payload: {e}")
-        
+    """
 
     
     def fuzz_payload(self, xml_string):
