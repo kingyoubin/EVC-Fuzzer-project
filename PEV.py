@@ -550,13 +550,16 @@ class _TCPHandler:
         self.last_recv = pkt
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
-        
-        
-        if self.last_recv.flags == 0x12:
-            print("INFO (PEV) : Recieved SYNACK")
-            self.startSession()
-        
 
+        if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
+            print("INFO (PEV) : Received SYNACK")
+            self.startSession()
+        elif pkt[TCP].flags & 0x01:  # FIN flag
+            self.fin()
+        else:
+            # TCP payload processing
+            payload = pkt[TCP].payload.load if pkt[TCP].payload else b''
+            self.process_payload(payload)
 
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
@@ -568,16 +571,16 @@ class _TCPHandler:
 
     
     def fuzz_payload(self, xml_string):
-        # Generate and send fuzzed payload
-        for _ in range(100):  # Adjust the range for the desired number of fuzzing iterations
+        for _ in range(100):
             fuzzed_xml = self.mutate_xml(xml_string)
             print(fuzzed_xml)
-            exi_payload = self.exi.encode(fuzzed_xml)  # Convert the fuzzed XML string to EXI
+            exi_payload = self.exi.encode(fuzzed_xml)
             if exi_payload is not None:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
                 sendp(packet, iface=self.iface, verbose=0)
-            time.sleep(1)
+                self.seq += len(exi_payload_bytes)  # Update seq
+            time.sleep(0.2)
 
     def mutate_xml(self, xml_string):
         try:
