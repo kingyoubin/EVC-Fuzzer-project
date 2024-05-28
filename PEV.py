@@ -556,28 +556,7 @@ class _TCPHandler:
             print("INFO (PEV) : Recieved SYNACK")
             self.startSession()
         
-        """
-        if "F" in self.last_recv.flags:
-            self.fin()
-            return
-        if "P" not in self.last_recv.flags:
-            return
-        
-        
-        self.lastMessageTime = time.time()
-        
-        data = self.last_recv[Raw].load
-        v2g = V2GTP(data)
-        payload = v2g.Payload
-        # Save responses to decrease load on java webserver
-        if payload in self.msgList.keys():
-            xml_string = self.msgList[payload]
-        else:
-            xml_string = self.getXMLFromPayload(payload)
-        if xml_string is None:
-            return
-        self.msgList[payload] = xml_string
-        """
+
 
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
