@@ -564,25 +564,14 @@ class _TCPHandler:
         print("Original XML:")
         print(xml_string)
         self.fuzz_payload(xml_string)
-    """
-    def process_payload(self, payload):
-        try:
-            # EXI 데이터를 디코딩하여 XML 문자열로 변환합니다.
-            xmlString = self.exi.decode(binascii.hexlify(payload))
-            # XML 문자열을 파싱하여 XML 요소 트리로 변환합니다.
-            root = ET.fromstring(xmlString)
-            if root is not None:
-                # XML 요소 트리를 문자열로 변환하여 출력합니다.
-                print(f"Received XML: {ET.tostring(root, encoding='unicode')}")
-                # 필요한 경우 XML 데이터를 추가로 처리할 수 있습니다.
-        except Exception as e:
-            print(f"Error processing payload: {e}")
-    """
 
     
     def fuzz_payload(self, xml_string):
-        for _ in range(100):
-            fuzzed_xml = self.mutate_xml(xml_string)
+        initial_length = 5  # Starting length for fuzzed values
+        increment = 2       # Length increment for each iteration
+
+        for i in range(100):
+            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
             print(fuzzed_xml)
             exi_payload = self.exi.encode(fuzzed_xml)
             if exi_payload is not None:

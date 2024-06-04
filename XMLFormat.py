@@ -83,7 +83,7 @@ class PacketHandler:
     def SessionSetupResponse(self):
         self._V2GDINHeader()
         self.SessionSetupRes = ET.SubElement(self.Body, "ns5:SessionSetupRes")
-        self.ResponseCode = ET.SubElement(self.SessionSetupRes, "ns5:ResponseCode")
+        self.ResponseCode = ET.SubElement(self.SessionSetupRes, "ns5:Respons                                                                                                                                                                                                                                    eCode")
         self.EVSEID = ET.SubElement(self.SessionSetupRes, "ns5:EVSEID")
 
         # Default Values
