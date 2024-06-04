@@ -572,6 +572,7 @@ class _TCPHandler:
 
         for i in range(100):
             fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
+            print(f"Fuzzing Iteration {i+1}:")
             print(fuzzed_xml)
             exi_payload = self.exi.encode(fuzzed_xml)
             if exi_payload is not None:
