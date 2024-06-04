@@ -602,7 +602,7 @@ class _TCPHandler:
             if elem.tag in elements_to_modify and elem.text:
                 elem.text = self.fuzz_value(elem.text, fuzz_length)
 
-    def fuzz_value(self, fuzz_length):
+    def fuzz_value(self, value, fuzz_length):
         fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=fuzz_length))
         return fuzzed_value
 
