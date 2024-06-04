@@ -581,17 +581,16 @@ class _TCPHandler:
                 self.seq += len(exi_payload_bytes)  # Update seq
             time.sleep(0.2)
 
-    def mutate_xml(self, xml_string):
+    def mutate_xml(self, xml_string, fuzz_length):
         try:
             root = ET.fromstring(xml_string)
-            self.randomly_modify_xml(root)
+            self.randomly_modify_xml(root, fuzz_length)
             return ET.tostring(root, encoding='unicode')
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
             return xml_string
 
-    def randomly_modify_xml(self, element):
-        # Modify only the specific elements
+    def randomly_modify_xml(self, element, fuzz_length):
         elements_to_modify = {
             "ProtocolNamespace",
             "VersionNumberMajor",
@@ -601,11 +600,10 @@ class _TCPHandler:
         }
         for elem in element.iter():
             if elem.tag in elements_to_modify and elem.text:
-                elem.text = self.fuzz_value(elem.text)
+                elem.text = self.fuzz_value(elem.text, fuzz_length)
 
-    def fuzz_value(self, value):
-        # Generate a random string of the same length as the original value
-        fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=len(value)))
+    def fuzz_value(self, fuzz_length):
+        fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=fuzz_length))
         return fuzzed_value
 
 
