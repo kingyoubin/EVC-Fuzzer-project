@@ -581,7 +581,7 @@ class _TCPHandler:
                 sendp(packet, iface=self.iface, verbose=0)
                 self.seq += len(exi_payload_bytes)  # Update seq
             time.sleep(0.2)
-
+#
     def mutate_xml(self, xml_string, fuzz_length):
         try:
             root = ET.fromstring(xml_string)
