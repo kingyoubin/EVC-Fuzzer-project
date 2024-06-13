@@ -591,6 +591,7 @@ class _TCPHandler:
             print(f"Error parsing XML: {e}")
             return xml_string
 
+
     def randomly_modify_xml(self, element, fuzz_length):
         elements_to_modify = {
             "ProtocolNamespace",
@@ -629,7 +630,7 @@ class _TCPHandler:
         v2gLayer.Payload = payload
 
         return ethLayer / ipLayer / tcpLayer / v2gLayer
-
+"""
     def getXMLFromPayload(self, data):
         data = binascii.hexlify(data)
         xmlString = self.exi.decode(data)
@@ -685,7 +686,7 @@ class _TCPHandler:
 
             self.xml.SessionID.text = self.SessionID
             return self.xml.getString()
-
+"""
     def handshake(self):
         while not self.startSniff:
             if not self.running:
