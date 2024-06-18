@@ -638,7 +638,7 @@ class _TCPHandler:
         v2gLayer.Payload = payload
 
         return ethLayer / ipLayer / tcpLayer / v2gLayer
-"""
+
     def getXMLFromPayload(self, data):
         data = binascii.hexlify(data)
         xmlString = self.exi.decode(data)
@@ -694,7 +694,8 @@ class _TCPHandler:
 
             self.xml.SessionID.text = self.SessionID
             return self.xml.getString()
-"""
+
+
     def handshake(self):
         while not self.startSniff:
             if not self.running:
