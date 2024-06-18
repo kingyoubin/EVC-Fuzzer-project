@@ -603,19 +603,31 @@ class _TCPHandler:
         for elem in element.iter():
             if elem.tag in elements_to_modify and elem.text:
                 elem.text = self.fuzz_value(elem.text, fuzz_length)
+            # Policy 2: Changing Argument Types
+            elif elem.tag in elements_to_modify:
+                self.change_argument_type(elem)
 
     def fuzz_value(self, value, fuzz_length):
-        # 효과적인 변이 값을 생성하기 위해 여러 유형의 변이값을 포함
+        # 다양한 유형의 변이 값을 생성하여 보안 취약성을 테스트
         fuzz_patterns = [
-            ''.join(random.choices(string.ascii_letters + string.digits, k=fuzz_length)),
-            'A' * fuzz_length,  # 매우 긴 문자열
-            '<script>alert(1)</script>',  # XSS 공격 패턴
-            "' OR '1'='1",  # SQL 인젝션 패턴
-            '\0' * fuzz_length,  # NULL 바이트 문자열
-            '\xFF' * fuzz_length  # 최대 바이트 값
+            ''.join(random.choices(string.ascii_letters + string.digits, k=fuzz_length)),  # 문자열 길이 변경
+            '',  # 빈 값 제공
+            str(2**31 - 1),  # 극단적인 값 제공 (정수 오버플로우 유도)
+            None,  # NULL 값 제공
+            '<NoData>UnexpectedValue</NoData>'  # NoData 타입에 임의 값 제공
         ]
         return random.choice(fuzz_patterns)
 
+    def change_argument_type(self, elem):
+        # 인수 타입을 무작위로 변경
+        type_choices = [
+            '123',  # 정수형 문자열
+            'true',  # Boolean 형식
+            '3.14',  # 실수형 문자열
+            '<ComplexType><SubElement>value</SubElement></ComplexType>',  # 복잡한 XML 타입
+            None  # NULL 값 제공
+        ]
+        elem.text = random.choice(type_choices)
 
     def buildV2G(self, payload):
         ethLayer = Ether()
