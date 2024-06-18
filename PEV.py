@@ -567,45 +567,46 @@ class _TCPHandler:
 
     
     def fuzz_payload(self, xml_string):
-        initial_length = 5  # Starting length for fuzzed values
-        increment = 2       # Length increment for each iteration
-
-        for i in range(100):
-            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
-            print(f"Fuzzing Iteration {i+1}:")
-            print(fuzzed_xml)
-            exi_payload = self.exi.encode(fuzzed_xml)
-            if exi_payload is not None:
-                exi_payload_bytes = binascii.unhexlify(exi_payload)
-                packet = self.buildV2G(exi_payload_bytes)
-                sendp(packet, iface=self.iface, verbose=0)
-                self.seq += len(exi_payload_bytes)  # Update seq
-            time.sleep(0.2)
-#
-    def mutate_xml(self, xml_string, fuzz_length):
-        try:
-            root = ET.fromstring(xml_string)
-            self.randomly_modify_xml(root, fuzz_length)
-            return ET.tostring(root, encoding='unicode')
-        except ET.ParseError as e:
-            print(f"Error parsing XML: {e}")
-            return xml_string
-
-
-    def randomly_modify_xml(self, element, fuzz_length):
-        elements_to_modify = {
+        fields_to_fuzz = [
             "ProtocolNamespace",
             "VersionNumberMajor",
             "VersionNumberMinor",
             "SchemaID",
             "Priority"
-        }
+        ]
+
+        for field in fields_to_fuzz:
+            initial_length = 5  # Starting length for fuzzed values
+            increment = 2       # Length increment for each iteration
+
+            for i in range(100):
+                fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment, field)
+                print(f"Fuzzing Iteration {i+1} for field {field}:")
+                print(fuzzed_xml)
+                exi_payload = self.exi.encode(fuzzed_xml)
+                if exi_payload is not None:
+                    exi_payload_bytes = binascii.unhexlify(exi_payload)
+                    packet = self.buildV2G(exi_payload_bytes)
+                    sendp(packet, iface=self.iface, verbose=0)
+                    self.seq += len(exi_payload_bytes)  # Update seq
+                time.sleep(0.2)
+
+    def mutate_xml(self, xml_string, fuzz_length, target_field):
+        try:
+            root = ET.fromstring(xml_string)
+            self.randomly_modify_xml(root, fuzz_length, target_field)
+            return ET.tostring(root, encoding='unicode')
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+            return xml_string
+
+    def randomly_modify_xml(self, element, fuzz_length, target_field):
         for elem in element.iter():
-            if elem.tag in elements_to_modify and elem.text:
-                elem.text = self.fuzz_value(elem.text, fuzz_length)
-            # Policy 2: Changing Argument Types
-            elif elem.tag in elements_to_modify:
-                self.change_argument_type(elem)
+            if elem.tag == target_field:
+                if elem.text:
+                    elem.text = self.fuzz_value(elem.text, fuzz_length)
+                else:
+                    self.change_argument_type(elem)
 
     def fuzz_value(self, value, fuzz_length):
         # 다양한 유형의 변이 값을 생성하여 보안 취약성을 테스트
