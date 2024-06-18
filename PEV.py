@@ -605,8 +605,16 @@ class _TCPHandler:
                 elem.text = self.fuzz_value(elem.text, fuzz_length)
 
     def fuzz_value(self, value, fuzz_length):
-        fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=fuzz_length))
-        return fuzzed_value
+        # 효과적인 변이 값을 생성하기 위해 여러 유형의 변이값을 포함
+        fuzz_patterns = [
+            ''.join(random.choices(string.ascii_letters + string.digits, k=fuzz_length)),
+            'A' * fuzz_length,  # 매우 긴 문자열
+            '<script>alert(1)</script>',  # XSS 공격 패턴
+            "' OR '1'='1",  # SQL 인젝션 패턴
+            '\0' * fuzz_length,  # NULL 바이트 문자열
+            '\xFF' * fuzz_length  # 최대 바이트 값
+        ]
+        return random.choice(fuzz_patterns)
 
 
     def buildV2G(self, payload):
