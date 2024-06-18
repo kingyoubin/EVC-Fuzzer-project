@@ -613,8 +613,11 @@ class _TCPHandler:
             ''.join(random.choices(string.ascii_letters + string.digits, k=fuzz_length)),  # 문자열 길이 변경
             '',  # 빈 값 제공
             str(2**31 - 1),  # 극단적인 값 제공 (정수 오버플로우 유도)
-            None,  # NULL 값 제공
-            '<NoData>UnexpectedValue</NoData>'  # NoData 타입에 임의 값 제공
+            '-1',  # 음수 값 제공
+            '0.00001',  # 매우 작은 값 제공
+            '<NoData>UnexpectedValue</NoData>',  # NoData 타입에 임의 값 제공
+            '; DROP TABLE users;',  # SQL 인젝션 패턴
+            '../etc/passwd'  # 파일 경로 조작 패턴
         ]
         return random.choice(fuzz_patterns)
 
