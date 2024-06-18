@@ -579,7 +579,7 @@ class _TCPHandler:
             initial_length = 5  # Starting length for fuzzed values
             increment = 2       # Length increment for each iteration
 
-            for i in range(100):
+            for i in range():
                 fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment, field)
                 print(f"Fuzzing Iteration {i+1} for field {field}:")
                 print(fuzzed_xml)
