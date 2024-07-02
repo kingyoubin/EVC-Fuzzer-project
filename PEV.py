@@ -612,8 +612,9 @@ class _TCPHandler:
 
     def fuzz_value(self, value, fuzz_length):
         # 다양한 유형의 변이 값을 생성하여 보안 취약성을 테스트
+        max_length = 100  # 최대 길이 제한
         fuzz_patterns = [
-            ''.join(random.choices(string.ascii_letters + string.digits, k=fuzz_length)),  # 문자열 길이 변경
+            ''.join(random.choices(string.ascii_letters + string.digits, k=min(fuzz_length, max_length))),  # 문자열 길이 변경
             '',  # 빈 값 제공
             str(2**31 - 1),  # 극단적인 값 제공 (정수 오버플로우 유도)
             '-1',  # 음수 값 제공
