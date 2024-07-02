@@ -589,7 +589,6 @@ class _TCPHandler:
                     packet = self.buildV2G(exi_payload_bytes)
                     sendp(packet, iface=self.iface, verbose=0)
                     self.seq += len(exi_payload_bytes)  # Update seq
-                time.sleep(0.2)
 
     def mutate_xml(self, xml_string, fuzz_length, target_field):
         try:
