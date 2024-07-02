@@ -586,6 +586,9 @@ class _TCPHandler:
                 exi_payload = self.exi.encode(fuzzed_xml)
                 if exi_payload is not None:
                     exi_payload_bytes = binascii.unhexlify(exi_payload)
+                    if len(exi_payload_bytes) > 1500:  # 제한된 크기를 넘지 않도록 체크
+                        print("WARNING: Payload size exceeds limit, skipping this iteration.")
+                        continue
                     packet = self.buildV2G(exi_payload_bytes)
                     sendp(packet, iface=self.iface, verbose=0)
                     self.seq += len(exi_payload_bytes)  # Update seq
