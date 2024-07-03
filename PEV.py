@@ -565,29 +565,27 @@ class _TCPHandler:
         self.fuzz_payload(xml_string)
 
     def fuzz_payload(self, xml_string):
-        initial_length = 5  # Starting length for fuzzed values
-        increment = 2       # Length increment for each iteration
+        initial_length = 1  # Starting length for fuzzed values
+        increment = 1       # Length increment for each iteration
         max_payload_size = 100  # Maximum payload size to avoid exceeding MTU
         max_exi_payload_size = 90  # Maximum EXI payload size to avoid exceeding MTU after encoding
+        iterations_per_length = 100  # Number of fuzzing attempts per length
 
-        for i in range(100000000):
-            if initial_length + i * increment > max_payload_size:
-                fuzz_length = random.randint(1, max_payload_size)
-            else:
-                fuzz_length = initial_length + i * increment
-
-            fuzzed_xml = self.mutate_xml(xml_string, fuzz_length, max_payload_size)
-            print(f"Fuzzing Iteration {i+1}:")
-            print(fuzzed_xml)
-            exi_payload = self.exi.encode(fuzzed_xml)
-            if exi_payload is not None:
-                exi_payload_bytes = binascii.unhexlify(exi_payload)
-                if len(exi_payload_bytes) > max_exi_payload_size:
-                    print("EXI payload too large, skipping this iteration")
-                    continue
-                packet = self.buildV2G(exi_payload_bytes)
-                sendp(packet, iface=self.iface, verbose=0)
-                self.seq += len(exi_payload_bytes)  # Update seq
+        for length in range(initial_length, max_payload_size + 1, increment):
+            for _ in range(iterations_per_length):
+                fuzz_length = length
+                fuzzed_xml = self.mutate_xml(xml_string, fuzz_length, max_payload_size)
+                print(f"Fuzzing with length {fuzz_length}:")
+                print(fuzzed_xml)
+                exi_payload = self.exi.encode(fuzzed_xml)
+                if exi_payload is not None:
+                    exi_payload_bytes = binascii.unhexlify(exi_payload)
+                    if len(exi_payload_bytes) > max_exi_payload_size:
+                        print("EXI payload too large, skipping this iteration")
+                        continue
+                    packet = self.buildV2G(exi_payload_bytes)
+                    sendp(packet, iface=self.iface, verbose=0)
+                    self.seq += len(exi_payload_bytes)  # Update seq
 
     def mutate_xml(self, xml_string, fuzz_length, max_payload_size):
         try:
@@ -613,11 +611,6 @@ class _TCPHandler:
         for elem in element.iter():
             if elem.tag in elements_to_modify and elem.text:
                 elem.text = self.fuzz_value(elem.text, fuzz_length)
-
-    def fuzz_value(self, value, fuzz_length):
-        characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~'
-        fuzzed_value = ''.join(random.choices(characters, k=fuzz_length))
-        return fuzzed_value
 
     def fuzz_value(self, value, fuzz_length):
         characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~'
