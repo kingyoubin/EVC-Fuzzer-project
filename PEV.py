@@ -554,7 +554,7 @@ class _TCPHandler:
         if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
             print("INFO (PEV) : Received SYNACK")
             self.startSession()
-        elif pkt[TCP].flags & 0x01:  # FIN flag
+        elif pkt[TCP].flags & 0x01:  # FIN 플래그
             self.fin()
 
         handler = PacketHandler()
@@ -565,10 +565,10 @@ class _TCPHandler:
         self.fuzz_payload(xml_string)
 
     def fuzz_payload(self, xml_string):
-        initial_length = 5  # Starting length for fuzzed values
-        increment = 2       # Length increment for each iteration
-        max_payload_size = 500  # Maximum payload size to avoid exceeding MTU
-        max_exi_payload_size = 400  # Maximum EXI payload size to avoid exceeding MTU after encoding
+        initial_length = 5  # 퍼징 값의 시작 길이
+        increment = 2       # 각 반복마다 길이 증가분
+        max_payload_size = 1500  # MTU 초과 방지를 위한 최대 페이로드 크기
+        max_exi_payload_size = 1400  # 인코딩 후 MTU 초과 방지를 위한 최대 EXI 페이로드 크기
 
         for i in range(100000000):
             fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment, max_payload_size)
@@ -582,16 +582,17 @@ class _TCPHandler:
                     continue
                 packet = self.buildV2G(exi_payload_bytes)
                 sendp(packet, iface=self.iface, verbose=0)
-                self.seq += len(exi_payload_bytes)  # Update seq
+                self.seq += len(exi_payload_bytes)  # seq 업데이트
 
     def mutate_xml(self, xml_string, fuzz_length, max_payload_size):
         try:
             root = ET.fromstring(xml_string)
             self.randomly_modify_xml(root, fuzz_length)
             mutated_xml = ET.tostring(root, encoding='unicode')
-            if len(mutated_xml) > max_payload_size:  # Check length of the resulting XML
+            if len(mutated_xml) > max_payload_size:  # 결과 XML 길이 확인
                 print("Mutated XML too large, truncating to fit")
-                return mutated_xml[:max_payload_size]  # Truncate to fit MTU
+                truncated_xml = self.truncate_xml(mutated_xml, max_payload_size)
+                return truncated_xml
             return mutated_xml
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
@@ -613,6 +614,21 @@ class _TCPHandler:
         characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~`'
         fuzzed_value = ''.join(random.choices(characters, k=fuzz_length))
         return fuzzed_value
+
+    def truncate_xml(self, xml_string, max_length):
+        """XML 문자열을 잘라서 잘 구성된 상태로 유지"""
+        try:
+            # XML 문자열 파싱
+            root = ET.fromstring(xml_string)
+            truncated_xml = ET.tostring(root, encoding='unicode')
+            while len(truncated_xml) > max_length:
+                # 마지막 요소 제거
+                root.remove(root[-1])
+                truncated_xml = ET.tostring(root, encoding='unicode')
+            return truncated_xml
+        except ET.ParseError as e:
+            print(f"Error truncating XML: {e}")
+            return xml_string
 
     def buildV2G(self, payload):
         ethLayer = Ether()
