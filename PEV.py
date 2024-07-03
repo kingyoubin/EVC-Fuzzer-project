@@ -567,19 +567,23 @@ class _TCPHandler:
 
     
     def fuzz_payload(self, xml_string):
-        initial_length = 5  # Starting length for fuzzed values
-        increment = 2       # Length increment for each iteration
+        initial_length = 1  # Starting length for fuzzed values
+        increment = 1       # Length increment for each iteration
+        iterations_per_length = 100  # Number of iterations per length
 
-        for i in range(100):
-            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
-            print(f"Fuzzing Iteration {i+1}:")
-            print(fuzzed_xml)
-            exi_payload = self.exi.encode(fuzzed_xml)
-            if exi_payload is not None:
-                exi_payload_bytes = binascii.unhexlify(exi_payload)
-                packet = self.buildV2G(exi_payload_bytes)
-                sendp(packet, iface=self.iface, verbose=0)
-                self.seq += len(exi_payload_bytes)  # Update seq
+        length = initial_length
+        while length <= 10:  # or set a maximum length as needed
+            for i in range(iterations_per_length):
+                fuzzed_xml = self.mutate_xml(xml_string, length)
+                print(f"Fuzzing Length {length}, Iteration {i+1}:")
+                print(fuzzed_xml)
+                exi_payload = self.exi.encode(fuzzed_xml)
+                if exi_payload is not None:
+                    exi_payload_bytes = binascii.unhexlify(exi_payload)
+                    packet = self.buildV2G(exi_payload_bytes)
+                    sendp(packet, iface=self.iface, verbose=0)
+                    self.seq += len(exi_payload_bytes)  # Update seq
+            length += increment
 
     def mutate_xml(self, xml_string, fuzz_length):
         try:
