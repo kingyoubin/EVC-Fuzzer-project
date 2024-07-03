@@ -568,6 +568,7 @@ class _TCPHandler:
         initial_length = 5  # Starting length for fuzzed values
         increment = 2       # Length increment for each iteration
         max_payload_size = 1500  # Maximum payload size to avoid exceeding MTU
+        max_exi_payload_size = 1400  # Maximum EXI payload size to avoid exceeding MTU after encoding
 
         for i in range(100000000):
             fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
@@ -576,27 +577,25 @@ class _TCPHandler:
             exi_payload = self.exi.encode(fuzzed_xml)
             if exi_payload is not None:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
-                if len(exi_payload_bytes) > max_payload_size:
-                    print("Payload too large, skipping this iteration")
+                if len(exi_payload_bytes) > max_exi_payload_size:
+                    print("EXI payload too large, skipping this iteration")
                     continue
                 packet = self.buildV2G(exi_payload_bytes)
                 sendp(packet, iface=self.iface, verbose=0)
                 self.seq += len(exi_payload_bytes)  # Update seq
-
 
     def mutate_xml(self, xml_string, fuzz_length):
         try:
             root = ET.fromstring(xml_string)
             self.randomly_modify_xml(root, fuzz_length)
             mutated_xml = ET.tostring(root, encoding='unicode')
-            if len(mutated_xml) > 1500:  # Check length of the resulting XML
+            if len(mutated_xml) > max_payload_size:  # Check length of the resulting XML
                 print("Mutated XML too large, truncating to fit")
-                return mutated_xml[:1500]  # Truncate to fit MTU
+                return mutated_xml[:max_payload_size]  # Truncate to fit MTU
             return mutated_xml
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
             return xml_string
-
 
     def randomly_modify_xml(self, element, fuzz_length):
         elements_to_modify = {
