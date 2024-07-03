@@ -588,10 +588,15 @@ class _TCPHandler:
         try:
             root = ET.fromstring(xml_string)
             self.randomly_modify_xml(root, fuzz_length)
-            return ET.tostring(root, encoding='unicode')
+            mutated_xml = ET.tostring(root, encoding='unicode')
+            if len(mutated_xml) > 1500:  # Check length of the resulting XML
+                print("Mutated XML too large, truncating to fit")
+                return mutated_xml[:1500]  # Truncate to fit MTU
+            return mutated_xml
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
             return xml_string
+
 
     def randomly_modify_xml(self, element, fuzz_length):
         elements_to_modify = {
