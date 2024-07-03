@@ -557,6 +557,7 @@ class _TCPHandler:
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
 
+
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
@@ -564,38 +565,27 @@ class _TCPHandler:
         print(xml_string)
         self.fuzz_payload(xml_string)
 
+    
     def fuzz_payload(self, xml_string):
-        initial_length = 1  # Starting length for fuzzed values
-        increment = 1       # Length increment for each iteration
-        max_payload_size = 100  # Maximum payload size to avoid exceeding MTU
-        max_exi_payload_size = 90  # Maximum EXI payload size to avoid exceeding MTU after encoding
-        iterations_per_length = 100  # Number of fuzzing attempts per length
+        initial_length = 5  # Starting length for fuzzed values
+        increment = 2       # Length increment for each iteration
 
-        for length in range(initial_length, max_payload_size + 1, increment):
-            for _ in range(iterations_per_length):
-                fuzz_length = length
-                fuzzed_xml = self.mutate_xml(xml_string, fuzz_length, max_payload_size)
-                print(f"Fuzzing with length {fuzz_length}:")
-                print(fuzzed_xml)
-                exi_payload = self.exi.encode(fuzzed_xml)
-                if exi_payload is not None:
-                    exi_payload_bytes = binascii.unhexlify(exi_payload)
-                    if len(exi_payload_bytes) > max_exi_payload_size:
-                        print("EXI payload too large, skipping this iteration")
-                        continue
-                    packet = self.buildV2G(exi_payload_bytes)
-                    sendp(packet, iface=self.iface, verbose=0)
-                    self.seq += len(exi_payload_bytes)  # Update seq
+        for i in range(100):
+            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
+            print(f"Fuzzing Iteration {i+1}:")
+            print(fuzzed_xml)
+            exi_payload = self.exi.encode(fuzzed_xml)
+            if exi_payload is not None:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += len(exi_payload_bytes)  # Update seq
 
-    def mutate_xml(self, xml_string, fuzz_length, max_payload_size):
+    def mutate_xml(self, xml_string, fuzz_length):
         try:
             root = ET.fromstring(xml_string)
             self.randomly_modify_xml(root, fuzz_length)
-            mutated_xml = ET.tostring(root, encoding='unicode')
-            if len(mutated_xml) > max_payload_size:  # Check length of the resulting XML
-                print("Mutated XML too large, truncating to fit")
-                return mutated_xml[:max_payload_size]  # Truncate to fit MTU
-            return mutated_xml
+            return ET.tostring(root, encoding='unicode')
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
             return xml_string
