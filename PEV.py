@@ -557,7 +557,6 @@ class _TCPHandler:
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
 
-
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
@@ -565,76 +564,46 @@ class _TCPHandler:
         print(xml_string)
         self.fuzz_payload(xml_string)
 
-    
     def fuzz_payload(self, xml_string):
-        fields_to_fuzz = [
-            "ProtocolNamespace",
-            "VersionNumberMajor",
-            "VersionNumberMinor",
-            "SchemaID",
-            "Priority"
-        ]
+        initial_length = 5  # Starting length for fuzzed values
+        increment = 2       # Length increment for each iteration
 
-        for field in fields_to_fuzz:
-            initial_length = 5  # Starting length for fuzzed values
-            increment = 2       # Length increment for each iteration
+        for i in range(100000000):
+            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
+            print(f"Fuzzing Iteration {i+1}:")
+            print(fuzzed_xml)
+            exi_payload = self.exi.encode(fuzzed_xml)
+            if exi_payload is not None:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += len(exi_payload_bytes)  # Update seq
 
-            for i in range(100000000):
-                fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment, field)
-                print(f"Fuzzing Iteration {i+1} for field {field}:")
-                print(fuzzed_xml)
-                exi_payload = self.exi.encode(fuzzed_xml)
-                if exi_payload is not None:
-                    exi_payload_bytes = binascii.unhexlify(exi_payload)
-                    if len(exi_payload_bytes) > 1500:  # 제한된 크기를 넘지 않도록 체크
-                        print("WARNING: Payload size exceeds limit, skipping this iteration.")
-                        continue
-                    packet = self.buildV2G(exi_payload_bytes)
-                    sendp(packet, iface=self.iface, verbose=0)
-                    self.seq += len(exi_payload_bytes)  # Update seq
-
-    def mutate_xml(self, xml_string, fuzz_length, target_field):
+    def mutate_xml(self, xml_string, fuzz_length):
         try:
             root = ET.fromstring(xml_string)
-            self.randomly_modify_xml(root, fuzz_length, target_field)
+            self.randomly_modify_xml(root, fuzz_length)
             return ET.tostring(root, encoding='unicode')
         except ET.ParseError as e:
             print(f"Error parsing XML: {e}")
             return xml_string
 
-    def randomly_modify_xml(self, element, fuzz_length, target_field):
+    def randomly_modify_xml(self, element, fuzz_length):
+        elements_to_modify = {
+            "ProtocolNamespace",
+            "VersionNumberMajor",
+            "VersionNumberMinor",
+            "SchemaID",
+            "Priority"
+        }
         for elem in element.iter():
-            if elem.tag == target_field:
-                if elem.text:
-                    elem.text = self.fuzz_value(elem.text, fuzz_length)
-                else:
-                    self.change_argument_type(elem)
+            if elem.tag in elements_to_modify and elem.text:
+                elem.text = self.fuzz_value(elem.text, fuzz_length)
 
     def fuzz_value(self, value, fuzz_length):
-        # 다양한 유형의 변이 값을 생성하여 보안 취약성을 테스트
-        max_length = 100  # 최대 길이 제한
-        fuzz_patterns = [
-            ''.join(random.choices(string.ascii_letters + string.digits, k=min(fuzz_length, max_length))),  # 문자열 길이 변경
-            '',  # 빈 값 제공
-            str(2**31 - 1),  # 극단적인 값 제공 (정수 오버플로우 유도)
-            '-1',  # 음수 값 제공
-            '0.00001',  # 매우 작은 값 제공
-            '<NoData>UnexpectedValue</NoData>',  # NoData 타입에 임의 값 제공
-            '; DROP TABLE users;',  # SQL 인젝션 패턴
-            '../etc/passwd'  # 파일 경로 조작 패턴
-        ]
-        return random.choice(fuzz_patterns)
-
-    def change_argument_type(self, elem):
-        # 인수 타입을 무작위로 변경
-        type_choices = [
-            '123',  # 정수형 문자열
-            'true',  # Boolean 형식
-            '3.14',  # 실수형 문자열
-            '<ComplexType><SubElement>value</SubElement></ComplexType>',  # 복잡한 XML 타입
-            None  # NULL 값 제공
-        ]
-        elem.text = random.choice(type_choices)
+        characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~`'
+        fuzzed_value = ''.join(random.choices(characters, k=fuzz_length))
+        return fuzzed_value
 
     def buildV2G(self, payload):
         ethLayer = Ether()
