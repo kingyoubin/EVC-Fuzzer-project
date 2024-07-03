@@ -567,8 +567,8 @@ class _TCPHandler:
     def fuzz_payload(self, xml_string):
         initial_length = 5  # Starting length for fuzzed values
         increment = 2       # Length increment for each iteration
-        max_payload_size = 1500  # Maximum payload size to avoid exceeding MTU
-        max_exi_payload_size = 1400  # Maximum EXI payload size to avoid exceeding MTU after encoding
+        max_payload_size = 500  # Maximum payload size to avoid exceeding MTU
+        max_exi_payload_size = 400  # Maximum EXI payload size to avoid exceeding MTU after encoding
 
         for i in range(100000000):
             fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment, max_payload_size)
