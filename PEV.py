@@ -571,7 +571,7 @@ class _TCPHandler:
         max_exi_payload_size = 1400  # Maximum EXI payload size to avoid exceeding MTU after encoding
 
         for i in range(100000000):
-            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
+            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment, max_payload_size)
             print(f"Fuzzing Iteration {i+1}:")
             print(fuzzed_xml)
             exi_payload = self.exi.encode(fuzzed_xml)
@@ -584,7 +584,7 @@ class _TCPHandler:
                 sendp(packet, iface=self.iface, verbose=0)
                 self.seq += len(exi_payload_bytes)  # Update seq
 
-    def mutate_xml(self, xml_string, fuzz_length):
+    def mutate_xml(self, xml_string, fuzz_length, max_payload_size):
         try:
             root = ET.fromstring(xml_string)
             self.randomly_modify_xml(root, fuzz_length)
