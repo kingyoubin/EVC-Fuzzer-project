@@ -1,11 +1,3 @@
-"""
-    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
-
-    This class is used to emulate a PEV when talking to an EVSE. Handles level 2 SLAC communications
-    and level 3 UDP and TCP communications to the charging station.
-"""
-
-# need to do this to import the custom SECC and V2G scapy layer
 import sys, os
 
 sys.path.append("./external_libs/HomePlugPWN")
