@@ -557,7 +557,6 @@ class _TCPHandler:
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
 
-
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
@@ -565,46 +564,41 @@ class _TCPHandler:
         print(xml_string)
         self.fuzz_payload(xml_string)
 
-    
     def fuzz_payload(self, xml_string):
-        initial_length = 1  # Starting length for fuzzed values
-        increment = 1       # Length increment for each iteration
-        iterations_per_length = 100  # Number of iterations per length
-
-        length = initial_length
-        while length <= 10:  # or set a maximum length as needed
-            for i in range(iterations_per_length):
-                fuzzed_xml = self.mutate_xml(xml_string, length)
-                print(f"Fuzzing Length {length}, Iteration {i+1}:")
-                print(fuzzed_xml)
-                exi_payload = self.exi.encode(fuzzed_xml)
-                if exi_payload is not None:
-                    exi_payload_bytes = binascii.unhexlify(exi_payload)
-                    packet = self.buildV2G(exi_payload_bytes)
-                    sendp(packet, iface=self.iface, verbose=0)
-                    self.seq += len(exi_payload_bytes)  # Update seq
-            length += increment
-
-    def mutate_xml(self, xml_string, fuzz_length):
-        try:
-            root = ET.fromstring(xml_string)
-            self.randomly_modify_xml(root, fuzz_length)
-            return ET.tostring(root, encoding='unicode')
-        except ET.ParseError as e:
-            print(f"Error parsing XML: {e}")
-            return xml_string
-
-    def randomly_modify_xml(self, element, fuzz_length):
-        elements_to_modify = {
+        elements_to_modify = [
             "ProtocolNamespace",
             "VersionNumberMajor",
             "VersionNumberMinor",
             "SchemaID",
             "Priority"
-        }
-        for elem in element.iter():
-            if elem.tag in elements_to_modify and elem.text:
-                elem.text = self.fuzz_value(elem.text, fuzz_length)
+        ]
+        initial_length = 1  # Starting length for fuzzed values
+        max_length = 10     # Maximum length for fuzzed values
+        iterations_per_length = 100  # Number of iterations per length
+
+        for element in elements_to_modify:
+            for length in range(initial_length, max_length + 1):
+                for i in range(iterations_per_length):
+                    fuzzed_xml = self.mutate_single_field_xml(xml_string, element, length)
+                    print(f"Fuzzing {element} Length {length}, Iteration {i+1}:")
+                    print(fuzzed_xml)
+                    exi_payload = self.exi.encode(fuzzed_xml)
+                    if exi_payload is not None:
+                        exi_payload_bytes = binascii.unhexlify(exi_payload)
+                        packet = self.buildV2G(exi_payload_bytes)
+                        sendp(packet, iface=self.iface, verbose=0)
+                        self.seq += len(exi_payload_bytes)  # Update seq
+
+    def mutate_single_field_xml(self, xml_string, field, fuzz_length):
+        try:
+            root = ET.fromstring(xml_string)
+            for elem in root.iter():
+                if elem.tag == field and elem.text:
+                    elem.text = self.fuzz_value(elem.text, fuzz_length)
+            return ET.tostring(root, encoding='unicode')
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+            return xml_string
 
     def fuzz_value(self, value, fuzz_length):
         characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?/~'
