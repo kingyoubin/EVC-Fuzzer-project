@@ -563,34 +563,41 @@ class _TCPHandler:
         self.fuzz_payload(xml_string)
 
 
-    def fuzz_payload(self,xml_string):
+    def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
         for element_name in elements_to_modify:
             for mutation_func in [self.value_flip, self.random_value, self.random_deletion, self.random_duplication]:
                 # XML 파싱
                 root = ET.fromstring(xml_string)
-                # 요소 찾기 및 변이 적용
+
+                # 요소 찾기 및 변이 적용 (최대 100회)
                 for elem in root.iter():
                     if elem.tag == element_name and elem.text:
                         original_value = elem.text
-                        mutated_value = mutation_func(original_value)
-                        elem.text = mutated_value
-                        # 변이된 XML 직렬화
-                        fuzzed_xml = ET.tostring(root, encoding='unicode')
-                        print(f"Mutated {element_name} using {mutation_func.__name__}:")
-                        print(fuzzed_xml)
-                        # 인코딩 및 전송
-                        exi_payload = self.exi.encode(fuzzed_xml)
-                        if exi_payload is not None:
-                            exi_payload_bytes = binascii.unhexlify(exi_payload)
-                            packet = self.buildV2G(exi_payload_bytes)
-                            sendp(packet, iface=self.iface, verbose=0)
-                            self.seq += len(exi_payload_bytes)
-                        time.sleep(0.2)
-                        # 다음 변이를 위해 원래 값으로 복원
-                        elem.text = original_value
+                        mutated_value = original_value  # 초기값 설정
 
+                        for _ in range(100):  # 변이 100번 반복
+                            mutated_value = mutation_func(mutated_value)  # 이전 변이된 값에 다시 변이 적용
+                            elem.text = mutated_value
+
+                            # 변이된 XML 직렬화
+                            fuzzed_xml = ET.tostring(root, encoding='unicode')
+                            print(f"Mutated {element_name} using {mutation_func.__name__}: {mutated_value}")
+                            print(fuzzed_xml)
+
+                            # EXI 인코딩 및 전송
+                            exi_payload = self.exi.encode(fuzzed_xml)
+                            if exi_payload is not None:
+                                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                                packet = self.buildV2G(exi_payload_bytes)
+                                sendp(packet, iface=self.iface, verbose=0)
+                                self.seq += len(exi_payload_bytes)
+
+                            time.sleep(0.2)
+
+                        # 다음 변이를 위해 마지막 변이 값을 유지
+                        elem.text = mutated_value
 
     def value_flip(self, value):
         if len(value) < 2:
