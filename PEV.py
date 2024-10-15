@@ -574,9 +574,12 @@ class _TCPHandler:
 
             # 요소 찾기 및 변이 적용 (최대 100회)
             for elem in root.iter():
-                if elem.tag == element_name and elem.text:
-                    original_value = elem.text
-                    mutated_value = original_value  # 초기값 설정
+                if elem.tag == element_name:
+                    # 값이 없을 경우 기본값 할당
+                    if not elem.text:
+                        elem.text = "1"  # 예시로 기본값 "1" 할당
+
+                    mutated_value = elem.text  # 초기값 설정
 
                     for _ in range(100):  # 변이 100번 반복
                         # 변이 함수 4개 중 하나를 랜덤으로 선택
