@@ -566,6 +566,8 @@ class _TCPHandler:
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
+        iteration_count = 1  # Iteration 카운트 변수 초기화
+
         for element_name in elements_to_modify:
             # XML 파싱
             root = ET.fromstring(xml_string)
@@ -576,7 +578,7 @@ class _TCPHandler:
                     original_value = elem.text
                     mutated_value = original_value  # 초기값 설정
 
-                    for i in range(100):  # 변이 100번 반복
+                    for _ in range(100):  # 변이 100번 반복
                         for mutation_func in [self.value_flip, self.random_value, self.random_deletion, self.random_duplication]:
                             mutated_value = mutation_func(mutated_value)  # 이전 변이된 값에 다시 변이 적용
                             elem.text = mutated_value
@@ -586,7 +588,7 @@ class _TCPHandler:
                             
                             # 구분선과 디버깅 메시지 출력
                             print(f"\n{'=' * 40}")
-                            print(f"[Iteration {i+1}] Mutated {element_name} using {mutation_func.__name__}:")
+                            print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
                             print(f"Mutated value: {mutated_value}")
                             print(f"Fuzzed XML:\n{fuzzed_xml}")
                             print(f"{'=' * 40}\n")
@@ -600,6 +602,8 @@ class _TCPHandler:
                                 self.seq += len(exi_payload_bytes)
 
                             time.sleep(0.2)
+
+                        iteration_count += 1  # Iteration 카운트를 각 변이 작업 후 증가
 
                     # 다음 변이를 위해 마지막 변이 값을 유지
                     elem.text = mutated_value
