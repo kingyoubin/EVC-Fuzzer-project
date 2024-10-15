@@ -644,15 +644,21 @@ class _TCPHandler:
         del value_list[idx]
         return ''.join(value_list)
 
-    def random_duplication(self, value):
+    def random_insertion(self, value):
         if len(value) == 0:
             return value
-        start_idx = random.randrange(len(value))
-        end_idx = random.randrange(start_idx, len(value))
-        substring = value[start_idx:end_idx+1]
+        
+        # 삽입할 위치를 임의로 선택
         insert_idx = random.randrange(len(value)+1)
+
+        # 랜덤하게 삽입할 문자 선택 (영문 대소문자, 숫자 중에서 선택)
+        random_char = random.choice(string.ascii_letters + string.digits)
+
+        # 문자열을 리스트로 변환하여 삽입
         value_list = list(value)
-        value_list[insert_idx:insert_idx] = list(substring)
+        value_list.insert(insert_idx, random_char)
+
+        # 리스트를 다시 문자열로 변환하여 반환
         return ''.join(value_list)
 
 
