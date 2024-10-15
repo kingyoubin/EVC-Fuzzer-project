@@ -579,31 +579,33 @@ class _TCPHandler:
                     mutated_value = original_value  # 초기값 설정
 
                     for _ in range(100):  # 변이 100번 반복
-                        for mutation_func in [self.value_flip, self.random_value, self.random_deletion, self.random_duplication]:
-                            mutated_value = mutation_func(mutated_value)  # 이전 변이된 값에 다시 변이 적용
-                            elem.text = mutated_value
+                        # 변이 함수 4개 중 하나를 랜덤으로 선택
+                        mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_duplication])
+                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                        elem.text = mutated_value
 
-                            # 변이된 XML 직렬화
-                            fuzzed_xml = ET.tostring(root, encoding='unicode')
-                            
-                            # 구분선과 디버깅 메시지 출력
-                            print(f"\n{'=' * 40}")
-                            print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
-                            print(f"Mutated value: {mutated_value}")
-                            print(f"Fuzzed XML:\n{fuzzed_xml}")
-                            print(f"{'=' * 40}\n")
+                        # 변이된 XML 직렬화
+                        fuzzed_xml = ET.tostring(root, encoding='unicode')
+                        
+                        # 구분선과 디버깅 메시지 출력
+                        print(f"\n{'=' * 40}")
+                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                        print(f"Mutated value: {mutated_value}")
+                        print(f"Fuzzed XML:\n{fuzzed_xml}")
+                        print(f"{'=' * 40}\n")
 
-                            # EXI 인코딩 및 전송
-                            exi_payload = self.exi.encode(fuzzed_xml)
-                            if exi_payload is not None:
-                                exi_payload_bytes = binascii.unhexlify(exi_payload)
-                                packet = self.buildV2G(exi_payload_bytes)
-                                sendp(packet, iface=self.iface, verbose=0)
-                                self.seq += len(exi_payload_bytes)
+                        # EXI 인코딩 및 전송
+                        exi_payload = self.exi.encode(fuzzed_xml)
+                        if exi_payload is not None:
+                            exi_payload_bytes = binascii.unhexlify(exi_payload)
+                            packet = self.buildV2G(exi_payload_bytes)
+                            sendp(packet, iface=self.iface, verbose=0)
+                            self.seq += len(exi_payload_bytes)
 
-                            time.sleep(0.2)
+                        # Iteration 카운트 증가
+                        iteration_count += 1
 
-                        iteration_count += 1  # Iteration 카운트를 각 변이 작업 후 증가
+                        time.sleep(0.2)
 
                     # 다음 변이를 위해 마지막 변이 값을 유지
                     elem.text = mutated_value
