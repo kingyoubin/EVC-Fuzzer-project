@@ -25,7 +25,6 @@ import xml.etree.ElementTree as ET
 import binascii
 import os.path
 import random
-from smbus import SMBus
 import argparse
 
 
