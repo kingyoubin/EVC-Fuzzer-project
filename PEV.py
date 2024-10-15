@@ -585,11 +585,17 @@ class _TCPHandler:
                         # 변이 함수 4개 중 하나를 랜덤으로 선택
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_duplication])
                         mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+
+                        # 변이 후 값이 비어 있으면 원래 값으로 복구
+                        if not mutated_value:
+                            print(f"Mutated value became empty, reverting to previous value: {elem.text}")
+                            mutated_value = elem.text  # 이전 값을 복구
+
                         elem.text = mutated_value
 
                         # 변이된 XML 직렬화
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
-                        
+
                         # 구분선과 디버깅 메시지 출력
                         print(f"\n{'=' * 40}")
                         print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
