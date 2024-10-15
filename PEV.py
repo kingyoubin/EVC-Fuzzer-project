@@ -577,14 +577,19 @@ class _TCPHandler:
                         original_value = elem.text
                         mutated_value = original_value  # 초기값 설정
 
-                        for _ in range(100):  # 변이 100번 반복
+                        for i in range(100):  # 변이 100번 반복
                             mutated_value = mutation_func(mutated_value)  # 이전 변이된 값에 다시 변이 적용
                             elem.text = mutated_value
 
                             # 변이된 XML 직렬화
                             fuzzed_xml = ET.tostring(root, encoding='unicode')
-                            print(f"Mutated {element_name} using {mutation_func.__name__}: {mutated_value}")
-                            print(fuzzed_xml)
+                            
+                            # 구분선과 디버깅 메시지 출력
+                            print(f"\n{'=' * 40}")
+                            print(f"[Iteration {i+1}] Mutated {element_name} using {mutation_func.__name__}:")
+                            print(f"Mutated value: {mutated_value}")
+                            print(f"Fuzzed XML:\n{fuzzed_xml}")
+                            print(f"{'=' * 40}\n")
 
                             # EXI 인코딩 및 전송
                             exi_payload = self.exi.encode(fuzzed_xml)
@@ -598,7 +603,7 @@ class _TCPHandler:
 
                         # 다음 변이를 위해 마지막 변이 값을 유지
                         elem.text = mutated_value
-
+                        
     def value_flip(self, value):
         if len(value) < 2:
             return value  # 두 글자 미만이면 교환 불가
