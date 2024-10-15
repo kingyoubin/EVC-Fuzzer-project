@@ -560,51 +560,73 @@ class _TCPHandler:
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
-        print("Original XML:")
-        print(xml_string)
-        self.fuzz_payload(xml_string)
+        self.fuzz_payload()
 
-    
-    def fuzz_payload(self, xml_string):
-        initial_length = 5  # Starting length for fuzzed values
-        increment = 2       # Length increment for each iteration
 
-        for i in range(100):
-            fuzzed_xml = self.mutate_xml(xml_string, initial_length + i * increment)
-            print(f"Fuzzing Iteration {i+1}:")
-            print(fuzzed_xml)
-            exi_payload = self.exi.encode(fuzzed_xml)
-            if exi_payload is not None:
-                exi_payload_bytes = binascii.unhexlify(exi_payload)
-                packet = self.buildV2G(exi_payload_bytes)
-                sendp(packet, iface=self.iface, verbose=0)
-                self.seq += len(exi_payload_bytes)  # Update seq
-            time.sleep(0.2)
+    def fuzz_payload(self):
+        elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
-    def mutate_xml(self, xml_string, fuzz_length):
-        try:
-            root = ET.fromstring(xml_string)
-            self.randomly_modify_xml(root, fuzz_length)
-            return ET.tostring(root, encoding='unicode')
-        except ET.ParseError as e:
-            print(f"Error parsing XML: {e}")
-            return xml_string
+        for element_name in elements_to_modify:
+            for mutation_func in [self.value_flip, self.random_value, self.random_deletion, self.random_duplication]:
+                # XML 파싱
+                root = ET.fromstring(xml_string)
+                # 요소 찾기 및 변이 적용
+                for elem in root.iter():
+                    if elem.tag == element_name and elem.text:
+                        original_value = elem.text
+                        mutated_value = mutation_func(original_value)
+                        elem.text = mutated_value
+                        # 변이된 XML 직렬화
+                        fuzzed_xml = ET.tostring(root, encoding='unicode')
+                        print(f"Mutated {element_name} using {mutation_func.__name__}:")
+                        print(fuzzed_xml)
+                        # 인코딩 및 전송
+                        exi_payload = self.exi.encode(fuzzed_xml)
+                        if exi_payload is not None:
+                            exi_payload_bytes = binascii.unhexlify(exi_payload)
+                            packet = self.buildV2G(exi_payload_bytes)
+                            sendp(packet, iface=self.iface, verbose=0)
+                            self.seq += len(exi_payload_bytes)
+                        time.sleep(0.2)
+                        # 다음 변이를 위해 원래 값으로 복원
+                        elem.text = original_value
 
-    def randomly_modify_xml(self, element, fuzz_length):
-        elements_to_modify = {
-            "ProtocolNamespace",
-            "VersionNumberMajor",
-            "VersionNumberMinor",
-            "SchemaID",
-            "Priority"
-        }
-        for elem in element.iter():
-            if elem.tag in elements_to_modify and elem.text:
-                elem.text = self.fuzz_value(elem.text, fuzz_length)
 
-    def fuzz_value(self, value, fuzz_length):
-        fuzzed_value = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=fuzz_length))
-        return fuzzed_value
+    def value_flip(self, value):
+        if len(value) < 2:
+            return value  # 두 글자 미만이면 교환 불가
+        idx1, idx2 = random.sample(range(len(value)), 2)
+        value_list = list(value)
+        value_list[idx1], value_list[idx2] = value_list[idx2], value_list[idx1]
+        return ''.join(value_list)
+
+    def random_value(self, value):
+        if len(value) == 0:
+            return value
+        idx = random.randrange(len(value))
+        new_char = chr(random.randint(33, 126))
+        value_list = list(value)
+        value_list[idx] = new_char
+        return ''.join(value_list)
+
+    def random_deletion(self, value):
+        if len(value) == 0:
+            return value
+        idx = random.randrange(len(value))
+        value_list = list(value)
+        del value_list[idx]
+        return ''.join(value_list)
+
+    def random_duplication(self, value):
+        if len(value) == 0:
+            return value
+        start_idx = random.randrange(len(value))
+        end_idx = random.randrange(start_idx, len(value))
+        substring = value[start_idx:end_idx+1]
+        insert_idx = random.randrange(len(value)+1)
+        value_list = list(value)
+        value_list[insert_idx:insert_idx] = list(substring)
+        return ''.join(value_list)
 
 
     def buildV2G(self, payload):
