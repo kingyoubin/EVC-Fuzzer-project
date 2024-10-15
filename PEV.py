@@ -567,17 +567,17 @@ class _TCPHandler:
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
         for element_name in elements_to_modify:
-            for mutation_func in [self.value_flip, self.random_value, self.random_deletion, self.random_duplication]:
-                # XML 파싱
-                root = ET.fromstring(xml_string)
+            # XML 파싱
+            root = ET.fromstring(xml_string)
 
-                # 요소 찾기 및 변이 적용 (최대 100회)
-                for elem in root.iter():
-                    if elem.tag == element_name and elem.text:
-                        original_value = elem.text
-                        mutated_value = original_value  # 초기값 설정
+            # 요소 찾기 및 변이 적용 (최대 100회)
+            for elem in root.iter():
+                if elem.tag == element_name and elem.text:
+                    original_value = elem.text
+                    mutated_value = original_value  # 초기값 설정
 
-                        for i in range(100):  # 변이 100번 반복
+                    for i in range(100):  # 변이 100번 반복
+                        for mutation_func in [self.value_flip, self.random_value, self.random_deletion, self.random_duplication]:
                             mutated_value = mutation_func(mutated_value)  # 이전 변이된 값에 다시 변이 적용
                             elem.text = mutated_value
 
@@ -601,9 +601,9 @@ class _TCPHandler:
 
                             time.sleep(0.2)
 
-                        # 다음 변이를 위해 마지막 변이 값을 유지
-                        elem.text = mutated_value
-                        
+                    # 다음 변이를 위해 마지막 변이 값을 유지
+                    elem.text = mutated_value
+
     def value_flip(self, value):
         if len(value) < 2:
             return value  # 두 글자 미만이면 교환 불가
