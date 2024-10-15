@@ -560,10 +560,10 @@ class _TCPHandler:
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
-        self.fuzz_payload()
+        self.fuzz_payload(xml_string)
 
 
-    def fuzz_payload(self):
+    def fuzz_payload(self,xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
         for element_name in elements_to_modify:
