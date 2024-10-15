@@ -583,7 +583,7 @@ class _TCPHandler:
 
                     for _ in range(100):  # 변이 100번 반복
                         # 변이 함수 4개 중 하나를 랜덤으로 선택
-                        mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_duplication])
+                        mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
                         mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
 
                         # 변이 후 값이 비어 있으면 원래 값으로 복구
