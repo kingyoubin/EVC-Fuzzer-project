@@ -568,10 +568,11 @@ class _TCPHandler:
         # Normal response handling
         self.response_received = True
         self.waiting_for_response = False
-            handler = PacketHandler()
-            handler.SupportedAppProtocolRequest()
-            xml_string = ET.tostring(handler.root, encoding='unicode')
-            self.fuzz_payload(xml_string)
+        
+        handler = PacketHandler()
+        handler.SupportedAppProtocolRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        self.fuzz_payload(xml_string)
 
 
     def fuzz_payload(self, xml_string):
