@@ -685,8 +685,12 @@ class _TCPHandler:
     def load_state(self):
         if os.path.exists('fuzzing_state.json'):
             with open('fuzzing_state.json', 'r') as f:
-                state = json.load(f)
-                return state
+                content = f.read().strip()  # Read the file content and strip any whitespace
+                if content:  # Check if the content is not empty
+                    return json.loads(content)  # Load the JSON data
+                else:
+                    print("INFO: The fuzzing_state.json file is empty.")
+                    return None  # Return None if the file is empty
         else:
             return None
 
