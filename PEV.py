@@ -26,7 +26,7 @@ import binascii
 import os.path
 import random
 import argparse
-
+import json
 
 class PEV:
 
@@ -435,6 +435,14 @@ class _TCPHandler:
 
         self.soc = 10
 
+    self.last_mutated_element = None
+    self.iteration_count = 1
+    self.resume_from_state = False
+    self.crash_detected = False
+    self.waiting_for_response = False
+    self.response_received = False
+    self.response_timeout = 5  # Adjust as needed
+
     def start(self):
         self.msgList = {}
         self.running = True
@@ -544,80 +552,159 @@ class _TCPHandler:
             verbose=0,
         )
         
-
     def handlePacket(self, pkt):
-        self.last_recv = pkt
-        self.seq = self.last_recv[TCP].ack
-        self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
+        self.seq = pkt[TCP].ack
+        self.ack = pkt[TCP].seq + len(pkt[TCP].payload)
 
-        if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
-            print("INFO (PEV) : Received SYNACK")
-            self.startSession()
-        elif pkt[TCP].flags & 0x01:  # FIN flag
-            self.fin()
+        if pkt[TCP].flags & 0x04:  # RST flag is set
+            print("Received RST packet from charger.")
+            self.response_received = True  # Response received (RST packet)
+            self.waiting_for_response = False
+            # Store crash info and handle crash
+            self.store_crash_info(self.last_mutated_input, self.last_sent_iteration)
+            self.handle_crash()
+            return
 
-
-        handler = PacketHandler()
-        handler.SupportedAppProtocolRequest()
-        xml_string = ET.tostring(handler.root, encoding='unicode')
-        self.fuzz_payload(xml_string)
+        # Normal response handling
+        self.response_received = True
+        self.waiting_for_response = False
+            handler = PacketHandler()
+            handler.SupportedAppProtocolRequest()
+            xml_string = ET.tostring(handler.root, encoding='unicode')
+            self.fuzz_payload(xml_string)
 
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
+        
+        if self.resume_from_state:
+            # Start from the last mutated element and iteration count
+            start_element_index = elements_to_modify.index(self.last_mutated_element)
+            iteration_count = self.iteration_count
+            self.resume_from_state = False  # Reset after loading
+        else:
+            start_element_index = 0
+            iteration_count = 1  # Iteration counter
 
-        iteration_count = 1  # Iteration 카운트 변수 초기화
-
-        for element_name in elements_to_modify:
-            # XML 파싱
+        for element_name in elements_to_modify[start_element_index:]:
+            # XML parsing
             root = ET.fromstring(xml_string)
-
-            # 요소 찾기 및 변이 적용 (최대 100회)
+            
+            # Find element and apply mutations (up to 100 times)
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # 값이 없을 경우 기본값 할당
                     if not elem.text:
-                        elem.text = "1"  # 예시로 기본값 "1" 할당
+                        elem.text = "1"
 
-                    mutated_value = elem.text  # 초기값 설정
+                    mutated_value = elem.text  # Initial value
 
-                    for _ in range(100):  # 변이 100번 반복
-                        # 변이 함수 4개 중 하나를 랜덤으로 선택
+                    if self.last_mutated_element == element_name and self.iteration_count > 1:
+                        start_mutation = self.iteration_count
+                        self.iteration_count = 1  # Reset after resuming
+                    else:
+                        start_mutation = 1
+
+                    for mutation_index in range(start_mutation, 101):  # Mutate up to 100 times
+                        # Randomly select a mutation function
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                        mutated_value = mutation_func(mutated_value)
 
-                        # 변이 후 값이 비어 있으면 원래 값으로 복구
                         if not mutated_value:
-                            print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # 이전 값을 복구
+                            mutated_value = elem.text  # Restore previous value
 
                         elem.text = mutated_value
 
-                        # 변이된 XML 직렬화
+                        # Serialize mutated XML
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                        # 구분선과 디버깅 메시지 출력
-                        print(f"\n{'=' * 40}")
-                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
-                        print(f"Mutated value: {mutated_value}")
-                        print(f"Fuzzed XML:\n{fuzzed_xml}")
-                        print(f"{'=' * 40}\n")
-
-                        # EXI 인코딩 및 전송
+                        # EXI encoding
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
                             packet = self.buildV2G(exi_payload_bytes)
+                            self.waiting_for_response = True  # Set flag to indicate waiting for response
+                            self.response_received = False    # Reset response received flag
+                            self.crash_detected = False       # Reset crash flag
+                            self.last_mutated_element = element_name
+                            self.iteration_count = mutation_index
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
+                            
+                            # Wait for response with timeout
+                            start_time = time.time()
+                            while self.waiting_for_response and time.time() - start_time < self.response_timeout:
+                                time.sleep(0.1)
 
-                        # Iteration 카운트 증가
+                            if not self.response_received or self.crash_detected:
+                                # No response received within timeout, or RST received
+                                print(f"Charger may have crashed at element '{element_name}', iteration {mutation_index} with input: {mutated_value}")
+                                self.store_state(mutated_value, element_name, mutation_index)
+                                return  # Exit fuzzing as charger has crashed
+
+                        # Increment iteration counter
                         iteration_count += 1
-
                         time.sleep(0.2)
 
-                    # 다음 변이를 위해 마지막 변이 값을 유지
+                    # Keep the last mutated value for next mutations
                     elem.text = mutated_value
+
+    def store_crash_info(self, mutated_input, iteration_count):
+        # Store the mutated input and iteration count to a file or variable
+        crash_info = {
+            'mutated_input': mutated_input,
+            'iteration_count': iteration_count
+        }
+        with open('crash_info.json', 'w') as f:
+            json.dump(crash_info, f)
+        print("Stored crash information.")
+
+    def handle_crash(self):
+        # Handle the crash by waiting for the charger to restart
+        print("Waiting for charger to restart...")
+        while not self.check_charger_restart():
+            time.sleep(5)
+        print("Charger has restarted. Resuming fuzzing...")
+        self.resume_fuzzing()
+
+    def load_state(self):
+        state_file = 'fuzz_state.json'
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                self.last_mutated_element = state['last_mutated_element']
+                self.iteration_count = state['iteration_count']
+                self.resume_from_state = True
+                print(f"Resuming fuzzing from element: {self.last_mutated_element}, iteration: {self.iteration_count}")
+        else:
+            self.last_mutated_element = None
+            self.iteration_count = 1
+            self.resume_from_state = False
+
+
+    def store_state(self, mutated_value, element_name, iteration_count):
+        state = {
+            'mutated_input': mutated_value,
+            'last_mutated_element': element_name,
+            'iteration_count': iteration_count
+        }
+        with open('fuzz_state.json', 'w') as f:
+            json.dump(state, f)
+        print(f"Stored state at element '{element_name}', iteration {iteration_count}")
+
+    def check_charger_restart(self):
+        # Implement a method to detect if the charger has restarted
+        # For example, by sending periodic pings or trying to establish a new connection
+        # Return True if the charger has restarted
+        pass
+
+    def resume_fuzzing(self):
+        # Load crash information
+        with open('crash_info.json', 'r') as f:
+            crash_info = json.load(f)
+        mutated_input = crash_info['mutated_input']
+        iteration_count = crash_info['iteration_count']
+        # Resume fuzzing from the stored mutated input and iteration count
+        self.fuzz_payload_from_iteration(mutated_input, iteration_count)
 
     def value_flip(self, value):
         if len(value) < 2:
