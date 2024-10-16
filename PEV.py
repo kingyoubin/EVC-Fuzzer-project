@@ -608,8 +608,20 @@ class _TCPHandler:
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
                             packet = self.buildV2G(exi_payload_bytes)
-                            sendp(packet, iface=self.iface, verbose=0)
-                            self.seq += len(exi_payload_bytes)
+
+                            # 패킷 전송 및 응답 대기
+                            response = self.send_and_receive(packet)
+                            if response is None:
+                                print("No response received. Assuming crash occurred.")
+                                self.save_state(fuzzed_xml)
+                                return  # 퍼징 종료
+                            elif response.haslayer(TCP) and response[TCP].flags & 0x04:  # RST 플래그 확인
+                                print("RST packet received. Assuming crash occurred.")
+                                self.save_state(fuzzed_xml)
+                                return  # 퍼징 종료
+                            else:
+                                print("Response received. Continuing fuzzing.")
+                                self.seq += len(exi_payload_bytes)
 
                         # Iteration 카운트 증가
                         iteration_count += 1
@@ -618,6 +630,36 @@ class _TCPHandler:
 
                     # 다음 변이를 위해 마지막 변이 값을 유지
                     elem.text = mutated_value
+
+    
+    def send_and_receive(self, packet):
+        # 패킷 전송
+        sendp(packet, iface=self.iface, verbose=0)
+
+        # 응답 대기
+        try:
+            response = sniff(
+                iface=self.iface,
+                lfilter=lambda x: x.haslayer(TCP) and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+                timeout=self.response_timeout,
+                count=1
+            )
+            if response:
+                return response[0]
+            else:
+                return None
+        except Exception as e:
+            print(f"Error while receiving response: {e}")
+            return None
+
+    def save_state(self, fuzzed_xml):
+        # 현재 상태를 파일이나 데이터베이스에 저장하는 로직을 구현합니다.
+        # 예를 들어, 변이된 XML과 현재 시퀀스 번호 등을 저장할 수 있습니다.
+        print("Saving current state...")
+        # 저장 로직 구현
+        with open('crash_state.txt', 'w') as f:
+            f.write(f"Mutated XML:\n{fuzzed_xml}\n")
+            f.write(f"Sequence number: {self.seq}\n")
 
     def value_flip(self, value):
         if len(value) < 2:
