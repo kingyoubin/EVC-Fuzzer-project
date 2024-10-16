@@ -434,6 +434,9 @@ class _TCPHandler:
         self.timeout = 5
 
         self.soc = 10
+        
+        self.response_received = threading.Event()
+        self.lock = threading.Lock()
 
     def start(self):
         self.msgList = {}
@@ -445,7 +448,7 @@ class _TCPHandler:
 
         self.recvThread = AsyncSniffer(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+            lfilter=lambda x: x.haslayer("TCP"),
             prn=self.handlePacket,
             started_callback=self.setStartSniff,
         )
@@ -546,15 +549,23 @@ class _TCPHandler:
         
 
     def handlePacket(self, pkt):
-        self.last_recv = pkt
-        self.seq = self.last_recv[TCP].ack
-        self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
-
+        with self.lock:
+            self.last_recv = pkt
+            self.seq = pkt[TCP].ack
+            self.ack = pkt[TCP].seq + len(pkt[TCP].payload)
+        
+        # Existing code for handling SYNACK and FIN
         if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
             print("INFO (PEV) : Received SYNACK")
             self.startSession()
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
+        else:
+            # Handle other packets if necessary
+            pass
+
+        # Signal that a response has been received
+        self.response_received.set()
 
 
         handler = PacketHandler()
@@ -565,59 +576,68 @@ class _TCPHandler:
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
-
-        iteration_count = 1  # Iteration 카운트 변수 초기화
+        iteration_count = 1
 
         for element_name in elements_to_modify:
-            # XML 파싱
             root = ET.fromstring(xml_string)
 
-            # 요소 찾기 및 변이 적용 (최대 100회)
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # 값이 없을 경우 기본값 할당
                     if not elem.text:
-                        elem.text = "1"  # 예시로 기본값 "1" 할당
+                        elem.text = "1"
+                    mutated_value = elem.text
 
-                    mutated_value = elem.text  # 초기값 설정
-
-                    for _ in range(100):  # 변이 100번 반복
-                        # 변이 함수 4개 중 하나를 랜덤으로 선택
+                    for _ in range(100):
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                        mutated_value = mutation_func(mutated_value)
 
-                        # 변이 후 값이 비어 있으면 원래 값으로 복구
                         if not mutated_value:
                             print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # 이전 값을 복구
+                            mutated_value = elem.text
 
                         elem.text = mutated_value
-
-                        # 변이된 XML 직렬화
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                        # 구분선과 디버깅 메시지 출력
                         print(f"\n{'=' * 40}")
                         print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
-                        # EXI 인코딩 및 전송
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
                             packet = self.buildV2G(exi_payload_bytes)
+                            self.response_received.clear()  # Clear the event before sending
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
 
-                        # Iteration 카운트 증가
-                        iteration_count += 1
+                            # Wait for a response with a timeout
+                            response = self.response_received.wait(timeout=5)
+                            if response:
+                                with self.lock:
+                                    # Check if it's an RST packet
+                                    if self.last_recv[TCP].flags & 0x04:  # RST flag
+                                        print("Received RST packet, crash occurred")
+                                        # Save iteration and mutated value
+                                        self.save_crash_info(iteration_count, mutated_value)
+                                        return  # Exit fuzzing
+                                    else:
+                                        print("Received response, continuing fuzzing")
+                            else:
+                                print("No response received, crash occurred")
+                                # Save iteration and mutated value
+                                self.save_crash_info(iteration_count, mutated_value)
+                                return  # Exit fuzzing
 
+                        iteration_count += 1
                         time.sleep(0.2)
 
-                    # 다음 변이를 위해 마지막 변이 값을 유지
                     elem.text = mutated_value
+
+    def save_crash_info(self, iteration, value):
+        with open("crash_info.txt", "a") as f:
+            f.write(f"Crash at iteration {iteration}, mutated value: {value}\n")
 
     def value_flip(self, value):
         if len(value) < 2:
