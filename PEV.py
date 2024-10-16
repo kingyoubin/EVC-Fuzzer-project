@@ -565,59 +565,130 @@ class _TCPHandler:
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
+    # 이전 상태 로드
+        saved_state = self.load_state()
+        if saved_state:
+            iteration_count = saved_state['iteration_count']
+            start_element = saved_state['element_name']
+            mutated_value = saved_state['mutated_value']
+            # 이전 상태부터 퍼징 시작
+        else:
+            iteration_count = 1  # Iteration 카운트 변수 초기화
 
-        iteration_count = 1  # Iteration 카운트 변수 초기화
+            for element_name in elements_to_modify:
+                # XML 파싱
+                root = ET.fromstring(xml_string)
 
-        for element_name in elements_to_modify:
-            # XML 파싱
-            root = ET.fromstring(xml_string)
+                # 요소 찾기 및 변이 적용 (최대 100회)
+                for elem in root.iter():
+                    if elem.tag == element_name:
+                        # 값이 없을 경우 기본값 할당
+                        if not elem.text:
+                            elem.text = "1"  # 예시로 기본값 "1" 할당
 
-            # 요소 찾기 및 변이 적용 (최대 100회)
-            for elem in root.iter():
-                if elem.tag == element_name:
-                    # 값이 없을 경우 기본값 할당
-                    if not elem.text:
-                        elem.text = "1"  # 예시로 기본값 "1" 할당
+                        mutated_value = elem.text  # 초기값 설정
 
-                    mutated_value = elem.text  # 초기값 설정
+                        for _ in range(100):  # 변이 100번 반복
+                            # 변이 함수 4개 중 하나를 랜덤으로 선택
+                            mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
+                            mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
 
-                    for _ in range(100):  # 변이 100번 반복
-                        # 변이 함수 4개 중 하나를 랜덤으로 선택
-                        mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                            # 변이 후 값이 비어 있으면 원래 값으로 복구
+                            if not mutated_value:
+                                print(f"Mutated value became empty, reverting to previous value: {elem.text}")
+                                mutated_value = elem.text  # 이전 값을 복구
 
-                        # 변이 후 값이 비어 있으면 원래 값으로 복구
-                        if not mutated_value:
-                            print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # 이전 값을 복구
+                            elem.text = mutated_value
 
+                            # 변이된 XML 직렬화
+                            fuzzed_xml = ET.tostring(root, encoding='unicode')
+
+                            # 구분선과 디버깅 메시지 출력
+                            print(f"\n{'=' * 40}")
+                            print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                            print(f"Mutated value: {mutated_value}")
+                            print(f"Fuzzed XML:\n{fuzzed_xml}")
+                            print(f"{'=' * 40}\n")
+
+                            # EXI 인코딩 및 전송
+                            exi_payload = self.exi.encode(fuzzed_xml)
+                            if exi_payload is not None:
+                                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                                packet = self.buildV2G(exi_payload_bytes)
+                                sendp(packet, iface=self.iface, verbose=0)
+                                self.seq += len(exi_payload_bytes)
+
+
+                            if self.check_crash():
+                                # 크래시 발생 시 상태 저장 및 퍼징 종료
+                                self.save_state(iteration_count, element_name, mutated_value)
+                                print("충전기 크래시 감지, 현재 상태를 저장하고 퍼징을 종료합니다.")
+                                return
+                            # Iteration 카운트 증가    
+                            iteration_count += 1
+
+                            time.sleep(0.2)
+
+                        # 다음 변이를 위해 마지막 변이 값을 유지
                         elem.text = mutated_value
 
-                        # 변이된 XML 직렬화
-                        fuzzed_xml = ET.tostring(root, encoding='unicode')
+    def check_crash(self):
+        # 응답을 기다릴 시간 (예: 5초)
+        timeout = 5
 
-                        # 구분선과 디버깅 메시지 출력
-                        print(f"\n{'=' * 40}")
-                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
-                        print(f"Mutated value: {mutated_value}")
-                        print(f"Fuzzed XML:\n{fuzzed_xml}")
-                        print(f"{'=' * 40}\n")
+        # 응답 패킷을 저장할 변수
+        self.response_received = False
+        self.rst_received = False
 
-                        # EXI 인코딩 및 전송
-                        exi_payload = self.exi.encode(fuzzed_xml)
-                        if exi_payload is not None:
-                            exi_payload_bytes = binascii.unhexlify(exi_payload)
-                            packet = self.buildV2G(exi_payload_bytes)
-                            sendp(packet, iface=self.iface, verbose=0)
-                            self.seq += len(exi_payload_bytes)
+        # 패킷 수신을 위한 스니퍼 스레드 시작
+        sniff_thread = Thread(target=self.sniff_response)
+        sniff_thread.start()
 
-                        # Iteration 카운트 증가
-                        iteration_count += 1
+        # 일정 시간 동안 대기
+        sniff_thread.join(timeout)
 
-                        time.sleep(0.2)
+        # 스니퍼 스레드 종료
+        if sniff_thread.is_alive():
+            sniff_thread.join()
 
-                    # 다음 변이를 위해 마지막 변이 값을 유지
-                    elem.text = mutated_value
+        # RST 패킷이 수신되었는지 또는 응답이 없었는지 확인
+        if self.rst_received or not self.response_received:
+            return True
+        else:
+            return False
+
+    def sniff_response(self):
+        def packet_handler(pkt):
+            # 충전기의 응답 패킷인지 확인
+            if pkt.haslayer(TCP) and pkt[IP].src == self.destinationIP and pkt[TCP].sport == self.destinationPort:
+                if pkt[TCP].flags & 0x04:  # RST 플래그 체크
+                    self.rst_received = True
+                else:
+                    self.response_received = True
+
+        sniff(
+            iface=self.iface,
+            prn=packet_handler,
+            stop_filter=lambda x: self.response_received or self.rst_received,
+            timeout=5  # 최대 대기 시간 설정
+        )
+
+    def save_state(self, iteration_count, element_name, mutated_value):
+        state = {
+            'iteration_count': iteration_count,
+            'element_name': element_name,
+            'mutated_value': mutated_value
+        }
+        with open('fuzzing_state.json', 'w') as f:
+            json.dump(state, f)
+
+    def load_state(self):
+        if os.path.exists('fuzzing_state.json'):
+            with open('fuzzing_state.json', 'r') as f:
+                state = json.load(f)
+                return state
+        else:
+            return None
 
     def value_flip(self, value):
         if len(value) < 2:
