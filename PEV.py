@@ -435,13 +435,13 @@ class _TCPHandler:
 
         self.soc = 10
 
-    self.last_mutated_element = None
-    self.iteration_count = 1
-    self.resume_from_state = False
-    self.crash_detected = False
-    self.waiting_for_response = False
-    self.response_received = False
-    self.response_timeout = 5  # Adjust as needed
+        self.last_mutated_element = None
+        self.iteration_count = 1
+        self.resume_from_state = False
+        self.crash_detected = False
+        self.waiting_for_response = False
+        self.response_received = False
+        self.response_timeout = 5  # Adjust as needed
 
     def start(self):
         self.msgList = {}
@@ -568,7 +568,7 @@ class _TCPHandler:
         # Normal response handling
         self.response_received = True
         self.waiting_for_response = False
-        
+
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
