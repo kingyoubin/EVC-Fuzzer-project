@@ -435,6 +435,7 @@ class _TCPHandler:
         self.timeout = 5
 
         self.soc = 10
+        self.response_timeout = 2  # 응답 대기 시간 설정 (초 단위)
 
     def start(self):
         self.msgList = {}
