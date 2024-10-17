@@ -26,6 +26,7 @@ import binascii
 import os.path
 import random
 import argparse
+import json
 
 
 class PEV:
@@ -652,7 +653,7 @@ class _TCPHandler:
 
                     # Reset mutation value for next element
                     self.mutated_value = ""
-                    
+
     def save_state(self, mutated_value, iteration_count):
         state = {
             "mutated_value": mutated_value,
