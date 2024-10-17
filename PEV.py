@@ -697,6 +697,8 @@ class _TCPHandler:
                 elif pkt[TCP].sport == self.destinationPort and pkt[TCP].dport == self.sourcePort:
                     if len(pkt[TCP].payload) > 0:
                         # Normal response received
+                        print("INFO (PEV): Received normal response packet:")
+                        print(pkt.show())  # Print the details of the received packet
                         self.response_received = True
                         return True
             return False
@@ -712,7 +714,7 @@ class _TCPHandler:
             print("No response received within timeout. Charger may have crashed.")
             self.charger_crashed = True
             return False
-
+            
     def save_crash_state(self, iteration_count, mutated_value, element_name):
         crash_state = {
             'iteration_count': iteration_count,
