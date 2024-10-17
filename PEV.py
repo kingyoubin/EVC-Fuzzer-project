@@ -435,6 +435,12 @@ class _TCPHandler:
 
         self.soc = 10
 
+        self.iteration_count = 1
+        self.mutated_value = ""
+        self.rst_received = False
+        self.response_received = threading.Event()
+        self.state_file = "fuzz_state.json"
+
     def start(self):
         self.msgList = {}
         self.running = True
@@ -550,12 +556,20 @@ class _TCPHandler:
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
 
+        if pkt[TCP].flags & 0x04:  # RST flag
+            print("INFO (PEV): Received RST packet")
+            self.rst_received = True
+            self.response_received.set()  # Unblock any waiting thread
+            return
+
         if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
             print("INFO (PEV) : Received SYNACK")
             self.startSession()
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
-
+        else:
+            # Regular packet received
+            self.response_received.set()
 
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
@@ -566,44 +580,50 @@ class _TCPHandler:
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
-        iteration_count = 1  # Iteration 카운트 변수 초기화
+        # Load previous state if exists
+        self.load_state()
 
         for element_name in elements_to_modify:
-            # XML 파싱
+            # XML parsing
             root = ET.fromstring(xml_string)
 
-            # 요소 찾기 및 변이 적용 (최대 100회)
+            # Find element and apply mutations
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # 값이 없을 경우 기본값 할당
+                    # Assign default value if text is None
                     if not elem.text:
-                        elem.text = "1"  # 예시로 기본값 "1" 할당
+                        elem.text = "1"
 
-                    mutated_value = elem.text  # 초기값 설정
+                    # Start from previous mutated value if resuming
+                    mutated_value = self.mutated_value if self.mutated_value else elem.text
 
-                    for _ in range(100):  # 변이 100번 반복
-                        # 변이 함수 4개 중 하나를 랜덤으로 선택
+                    while self.iteration_count <= 100:  # Perform up to 100 mutations
+                        # Reset response flags
+                        self.response_received.clear()
+                        self.rst_received = False
+
+                        # Randomly select a mutation function
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                        mutated_value = mutation_func(mutated_value)
 
-                        # 변이 후 값이 비어 있으면 원래 값으로 복구
+                        # If mutated value is empty, revert to previous value
                         if not mutated_value:
                             print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # 이전 값을 복구
+                            mutated_value = elem.text
 
                         elem.text = mutated_value
 
-                        # 변이된 XML 직렬화
+                        # Serialize mutated XML
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                        # 구분선과 디버깅 메시지 출력
+                        # Debugging messages
                         print(f"\n{'=' * 40}")
-                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                        print(f"[Iteration {self.iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
-                        # EXI 인코딩 및 전송
+                        # EXI encoding and sending
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
@@ -611,13 +631,48 @@ class _TCPHandler:
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
 
-                        # Iteration 카운트 증가
-                        iteration_count += 1
+                        # Wait for response or timeout
+                        if self.response_received.wait(self.timeout):
+                            if self.rst_received:
+                                print("INFO (PEV): RST received, stopping fuzzing.")
+                                self.save_state(mutated_value, self.iteration_count)
+                                self.running = False
+                                return
+                        else:
+                            # No response within timeout
+                            print("INFO (PEV): No response received, stopping fuzzing.")
+                            self.save_state(mutated_value, self.iteration_count)
+                            self.running = False
+                            return
+
+                        # Increment iteration count
+                        self.iteration_count += 1
 
                         time.sleep(0.2)
 
-                    # 다음 변이를 위해 마지막 변이 값을 유지
-                    elem.text = mutated_value
+                    # Reset mutation value for next element
+                    self.mutated_value = ""
+                    
+    def save_state(self, mutated_value, iteration_count):
+        state = {
+            "mutated_value": mutated_value,
+            "iteration_count": iteration_count
+        }
+        with open(self.state_file, 'w') as f:
+            json.dump(state, f)
+        print(f"INFO (PEV): Saved state to {self.state_file}")
+
+    def load_state(self):
+        try:
+            with open(self.state_file, 'r') as f:
+                state = json.load(f)
+                self.mutated_value = state.get("mutated_value", "")
+                self.iteration_count = state.get("iteration_count", 1)
+            print(f"INFO (PEV): Loaded state from {self.state_file}")
+        except FileNotFoundError:
+            self.iteration_count = 1
+            self.mutated_value = ""
+            print("INFO (PEV): No previous state found, starting fresh.")
 
     def value_flip(self, value):
         if len(value) < 2:
