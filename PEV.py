@@ -682,25 +682,23 @@ class _TCPHandler:
                     # 엘리먼트 변이 완료 후 크래시 상태 파일 삭제
                     self.delete_crash_state()
 
-    def wait_for_response(self, timeout=10):
+    def wait_for_response(self, timeout=5):
         self.charger_crashed = False  # Reset flag
         self.response_received = False  # Flag to check if a normal response was received
 
         def stop_filter(pkt):
             if pkt.haslayer(TCP):
-                # Check for RST flag without port filtering
+                # Check if the packet is an RST packet
                 if pkt[TCP].flags & 0x04:  # RST flag
                     print("Received TCP RST from", pkt[IP].src, "Charger may have crashed.")
                     self.charger_crashed = True
-                    return True
-                # Check for normal response with payload and correct ports
-                elif pkt[TCP].sport == self.destinationPort and pkt[TCP].dport == self.sourcePort:
-                    if len(pkt[TCP].payload) > 0:
-                        # Normal response received
-                        print("INFO (PEV): Received normal response packet:")
-                        print(pkt.show())  # Print the details of the received packet
-                        self.response_received = True
-                        return True
+                    return True  # Stop sniffing on RST
+                else:
+                    # Accept any non-RST packets
+                    print("INFO (PEV): Received a non-RST packet:")
+                    print(pkt.show())  # Print the details of the received packet
+                    self.response_received = True
+                    return True  # Stop sniffing on any other packet
             return False
 
         sniff(iface=self.iface, stop_filter=stop_filter, timeout=timeout)
