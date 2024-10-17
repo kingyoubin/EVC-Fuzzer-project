@@ -663,7 +663,7 @@ class _TCPHandler:
         # Sniff for a response packet
         response_packets = sniff(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer(TCP) and x.getlayer(IPv6).src == self.destinationIP and x.getlayer(TCP).sport == self.destinationPort and x.getlayer(TCP).dport == self.sourcePort,
+            lfilter=lambda x: x.haslayer(TCP),
             timeout=response_timeout,
             count=1
         )
