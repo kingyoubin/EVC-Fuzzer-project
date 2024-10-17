@@ -26,6 +26,9 @@ import binascii
 import os.path
 import random
 import argparse
+import json
+import string
+import time
 
 
 class PEV:
@@ -435,6 +438,9 @@ class _TCPHandler:
 
         self.soc = 10
 
+        self.iteration_count = 1
+        self.stop_fuzzing = False
+
     def start(self):
         self.msgList = {}
         self.running = True
@@ -564,46 +570,56 @@ class _TCPHandler:
 
 
     def fuzz_payload(self, xml_string):
+        # Load previous fuzzing state if exists
+        self.load_fuzzing_state()
+
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
-        iteration_count = 1  # Iteration 카운트 변수 초기화
-
         for element_name in elements_to_modify:
-            # XML 파싱
+            # XML parsing
             root = ET.fromstring(xml_string)
 
-            # 요소 찾기 및 변이 적용 (최대 100회)
+            # Find element and apply mutations
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # 값이 없을 경우 기본값 할당
+                    # Assign default value if None
                     if not elem.text:
-                        elem.text = "1"  # 예시로 기본값 "1" 할당
+                        elem.text = "1"  # Example default value
 
-                    mutated_value = elem.text  # 초기값 설정
+                    mutated_value = elem.text  # Initial value
 
-                    for _ in range(100):  # 변이 100번 반복
-                        # 변이 함수 4개 중 하나를 랜덤으로 선택
+                    for _ in range(100):  # Apply 100 mutations
+                        # If fuzzing should stop, break the loop
+                        if self.stop_fuzzing:
+                            break
+
+                        # Skip iterations if resuming from saved state
+                        if self.iteration_count < self.iteration_count:
+                            self.iteration_count += 1
+                            continue
+
+                        # Randomly select a mutation function
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                        mutated_value = mutation_func(mutated_value)  # Apply mutation
 
-                        # 변이 후 값이 비어 있으면 원래 값으로 복구
+                        # Revert to previous value if mutated value is empty
                         if not mutated_value:
                             print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # 이전 값을 복구
+                            mutated_value = elem.text  # Restore previous value
 
                         elem.text = mutated_value
 
-                        # 변이된 XML 직렬화
+                        # Serialize mutated XML
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                        # 구분선과 디버깅 메시지 출력
+                        # Debug messages
                         print(f"\n{'=' * 40}")
-                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                        print(f"[Iteration {self.iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
-                        # EXI 인코딩 및 전송
+                        # EXI encoding and sending
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
@@ -611,13 +627,67 @@ class _TCPHandler:
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
 
-                        # Iteration 카운트 증가
-                        iteration_count += 1
+                            # Monitor response
+                            if not self.monitor_response(mutated_value):
+                                return  # Exit fuzzing if no response or RST received
+
+                        # Increment iteration count
+                        self.iteration_count += 1
 
                         time.sleep(0.2)
 
-                    # 다음 변이를 위해 마지막 변이 값을 유지
-                    elem.text = mutated_value
+    def save_fuzzing_state(self, mutated_value, iteration_count):
+    state = {
+        'mutated_value': mutated_value,
+        'iteration_count': iteration_count
+    }
+    with open('fuzzing_state.json', 'w') as f:
+        json.dump(state, f)
+    print(f"Saved fuzzing state to file.")
+
+    def load_fuzzing_state(self):
+        state_file = 'fuzzing_state.json'
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                self.iteration_count = state['iteration_count']
+                print(f"Resuming fuzzing from iteration {self.iteration_count}")
+        else:
+            self.iteration_count = 1  # Start from scratch
+
+
+    def monitor_response(self, mutated_value):
+        # Define a timeout for receiving a response
+        response_timeout = 2  # seconds
+
+        # Sniff for a response packet
+        response_packets = sniff(
+            iface=self.iface,
+            lfilter=lambda x: x.haslayer(TCP) and x[IPv6].src == self.destinationIP and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+            timeout=response_timeout,
+            count=1
+        )
+
+        if len(response_packets) == 0:
+            # No response received within timeout
+            # Stop fuzzing, save mutation value and iteration count
+            self.save_fuzzing_state(mutated_value, self.iteration_count)
+            print(f"No response received after sending mutation. Stopping fuzzing.")
+            self.stop_fuzzing = True
+            return False  # Stop fuzzing
+        else:
+            # Response received
+            response_packet = response_packets[0]
+            if response_packet.haslayer(TCP) and response_packet[TCP].flags & 0x04:
+                # RST flag is set
+                # Stop fuzzing, save mutation value and iteration count
+                self.save_fuzzing_state(mutated_value, self.iteration_count)
+                print(f"Received RST packet. Stopping fuzzing.")
+                self.stop_fuzzing = True
+                return False  # Stop fuzzing
+            else:
+                # Continue fuzzing
+                return True  # Continue fuzzing
 
     def value_flip(self, value):
         if len(value) < 2:
