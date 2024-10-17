@@ -682,9 +682,11 @@ class _TCPHandler:
                     # 엘리먼트 변이 완료 후 크래시 상태 파일 삭제
                     self.delete_crash_state()
 
-    def wait_for_response(self, timeout=5):
+    def wait_for_response(self, timeout=10):
         self.charger_crashed = False  # Reset flag
         self.response_received = False  # Flag to check if a normal response was received
+
+        print("Wait for responce called.")
 
         def stop_filter(pkt):
             print("RAW PACKET")
