@@ -687,6 +687,9 @@ class _TCPHandler:
         self.response_received = False  # Flag to check if a normal response was received
 
         def stop_filter(pkt):
+            print("RAW PACKET")
+            print(pkt.show())
+            print("-------------------------")
             if pkt.haslayer(TCP):
                 # Check if the packet is an RST packet
                 if pkt[TCP].flags & 0x04:  # RST flag
