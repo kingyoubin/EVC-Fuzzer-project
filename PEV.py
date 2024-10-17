@@ -645,15 +645,15 @@ class _TCPHandler:
             json.dump(state, f)
         print(f"Saved fuzzing state to file.")
 
-        def load_fuzzing_state(self):
-            state_file = 'fuzzing_state.json'
-            if os.path.exists(state_file):
-                with open(state_file, 'r') as f:
-                    state = json.load(f)
-                    self.iteration_count = state['iteration_count']
-                    print(f"Resuming fuzzing from iteration {self.iteration_count}")
-            else:
-                self.iteration_count = 1  # Start from scratch
+    def load_fuzzing_state(self):
+        state_file = 'fuzzing_state.json'
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                self.iteration_count = state['iteration_count']
+                print(f"Resuming fuzzing from iteration {self.iteration_count}")
+        else:
+            self.iteration_count = 1  # Start from scratch
 
 
     def monitor_response(self, mutated_value):
