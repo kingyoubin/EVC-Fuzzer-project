@@ -658,7 +658,7 @@ class _TCPHandler:
 
     def monitor_response(self, mutated_value):
         # Define a timeout for receiving a response
-        response_timeout = 4  # seconds
+        response_timeout = 2  # seconds
 
         # Sniff for a response packet
         response_packets = sniff(
@@ -669,8 +669,8 @@ class _TCPHandler:
         )
         for pkt in response_packets:
             pkt.show()
-                if len(response_packets) == 0:
-
+            
+            if len(response_packets) == 0:
             # No response received within timeout
             self.save_fuzzing_state(mutated_value, self.iteration_count)
             print(f"No response received after sending mutation. Stopping fuzzing.")
