@@ -682,7 +682,7 @@ class _TCPHandler:
                     # 엘리먼트 변이 완료 후 크래시 상태 파일 삭제
                     self.delete_crash_state()
 
-    def wait_for_response(self, timeout=5):
+    def wait_for_response(self, timeout=10):
         self.charger_crashed = False  # Reset flag
         self.response_received = False  # Flag to check if a normal response was received
 
@@ -714,7 +714,7 @@ class _TCPHandler:
             print("No response received within timeout. Charger may have crashed.")
             self.charger_crashed = True
             return False
-            
+
     def save_crash_state(self, iteration_count, mutated_value, element_name):
         crash_state = {
             'iteration_count': iteration_count,
