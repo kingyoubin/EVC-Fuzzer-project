@@ -556,17 +556,37 @@ class _TCPHandler:
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
 
+        # RST 패킷이 감지되면 퍼징을 멈춤
+        if pkt[TCP].flags & 0x04:  # RST flag
+            print("INFO (PEV) : Received RST. Stopping fuzzing.")
+            self.stop_fuzzing = True
+            return
+
+        # SYN-ACK 패킷을 감지
         if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
             print("INFO (PEV) : Received SYNACK")
             self.startSession()
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
 
+        # 응답이 없을 때의 타임아웃을 설정
+        self.last_response_time = time.time()  # 마지막 응답 시간을 현재 시간으로 업데이트
 
+        # 퍼징할 XML 데이터를 생성하고 퍼징 시작
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
         self.fuzz_payload(xml_string)
+
+    def check_for_timeout(self, timeout=5):
+        while self.running and not self.stop_fuzzing:
+            # 마지막 응답 이후의 경과 시간을 계산
+            time_since_last_response = time.time() - self.last_response_time
+            if time_since_last_response > timeout:
+                print("INFO (PEV) : No response within timeout period. Stopping fuzzing.")
+                self.stop_fuzzing = True
+                break
+            time.sleep(1)  # 타임아웃 검사를 매 1초마다 수행
 
 
     def fuzz_payload(self, xml_string):
@@ -591,50 +611,61 @@ class _TCPHandler:
                     for _ in range(100):  # Apply 100 mutations
                         # If fuzzing should stop, break the loop
                         if self.stop_fuzzing:
+                            print("INFO (PEV) : Fuzzing stopped due to stop_fuzzing flag.")
+                            # Save the current state before stopping
+                            self.save_fuzzing_state(mutated_value, self.iteration_count)
                             break
 
                         # Skip iterations if resuming from saved state
-                        if self.iteration_count < self.iteration_count:
+                        if self.iteration_count < _ + 1:
+                            # Randomly select a mutation function
+                            mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
+                            mutated_value = mutation_func(mutated_value)  # Apply mutation
+
+                            # Revert to previous value if mutated value is empty
+                            if not mutated_value:
+                                print(f"Mutated value became empty, reverting to previous value: {elem.text}")
+                                mutated_value = elem.text  # Restore previous value
+
+                            elem.text = mutated_value
+
+                            # Serialize mutated XML
+                            fuzzed_xml = ET.tostring(root, encoding='unicode')
+
+                            # Debug messages
+                            print(f"\n{'=' * 40}")
+                            print(f"[Iteration {self.iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                            print(f"Mutated value: {mutated_value}")
+                            print(f"Fuzzed XML:\n{fuzzed_xml}")
+                            print(f"{'=' * 40}\n")
+
+                            # EXI encoding and sending
+                            exi_payload = self.exi.encode(fuzzed_xml)
+                            if exi_payload is not None:
+                                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                                packet = self.buildV2G(exi_payload_bytes)
+                                sendp(packet, iface=self.iface, verbose=0)
+                                self.seq += len(exi_payload_bytes)
+
+                            # Increment iteration count
                             self.iteration_count += 1
-                            continue
 
-                        # Randomly select a mutation function
-                        mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # Apply mutation
+                            # Save the fuzzing state periodically
+                            if self.iteration_count % 10 == 0:  # Save every 10 iterations
+                                self.save_fuzzing_state(mutated_value, self.iteration_count)
 
-                        # Revert to previous value if mutated value is empty
-                        if not mutated_value:
-                            print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # Restore previous value
+                            # Check if fuzzing should be stopped
+                            if self.stop_fuzzing:
+                                print("INFO (PEV) : Stopping fuzzing due to external flag.")
+                                # Save the current state before stopping
+                                self.save_fuzzing_state(mutated_value, self.iteration_count)
+                                break
 
-                        elem.text = mutated_value
+                            time.sleep(0.2)
 
-                        # Serialize mutated XML
-                        fuzzed_xml = ET.tostring(root, encoding='unicode')
-
-                        # Debug messages
-                        print(f"\n{'=' * 40}")
-                        print(f"[Iteration {self.iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
-                        print(f"Mutated value: {mutated_value}")
-                        print(f"Fuzzed XML:\n{fuzzed_xml}")
-                        print(f"{'=' * 40}\n")
-
-                        # EXI encoding and sending
-                        exi_payload = self.exi.encode(fuzzed_xml)
-                        if exi_payload is not None:
-                            exi_payload_bytes = binascii.unhexlify(exi_payload)
-                            packet = self.buildV2G(exi_payload_bytes)
-                            sendp(packet, iface=self.iface, verbose=0)
-                            self.seq += len(exi_payload_bytes)
-
-                            # Monitor response
-                            if not self.monitor_response(mutated_value):
-                                return  # Exit fuzzing if no response or RST received
-
-                        # Increment iteration count
-                        self.iteration_count += 1
-
-                        time.sleep(0.2)
+                # Stop fuzzing if the flag is set
+                if self.stop_fuzzing:
+                    break
 
     def save_fuzzing_state(self, mutated_value, iteration_count):
         state = {
@@ -656,39 +687,6 @@ class _TCPHandler:
             self.iteration_count = 1  # Start from scratch
 
 
-    def monitor_response(self, mutated_value):
-        # Define a timeout for receiving a response
-        response_timeout = 2  # seconds
-
-        # Sniff for a response packet
-        response_packets = sniff(
-            iface=self.iface,
-            lfilter=lambda x: x.haslayer(TCP),
-            timeout=response_timeout,
-            count=1
-        )
-
-        for pkt in response_packets:
-            pkt.show()
-
-        if len(response_packets) == 0:
-            # No response received within timeout
-            self.save_fuzzing_state(mutated_value, self.iteration_count)
-            print(f"No response received after sending mutation. Stopping fuzzing.")
-            self.stop_fuzzing = True
-            return False
-        else:
-            # Response received
-            response_packet = response_packets[0]
-            if response_packet.haslayer(TCP) and response_packet[TCP].flags & 0x04:
-                # RST flag is set
-                self.save_fuzzing_state(mutated_value, self.iteration_count)
-                print(f"Received RST packet. Stopping fuzzing.")
-                self.stop_fuzzing = True
-                return False
-            else:
-                # Continue fuzzing
-                return True
 
     def value_flip(self, value):
         if len(value) < 2:
