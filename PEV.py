@@ -29,6 +29,7 @@ import argparse
 import pickle
 import json
 
+
 class PEV:
 
     def __init__(self, args):
@@ -564,6 +565,19 @@ class _TCPHandler:
         xml_string = ET.tostring(handler.root, encoding='unicode')
         self.fuzz_payload(xml_string)
 
+
+        if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
+            print("INFO (PEV) : Received SYNACK")
+            self.startSession()
+        elif pkt[TCP].flags & 0x01:  # FIN flag
+            self.fin()
+
+        # Proceed with handling the packet and fuzzing
+        handler = PacketHandler()
+        handler.SupportedAppProtocolRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        self.fuzz_payload(xml_string)
+
     def save_state_and_restart(self):
         # Save the current state
         with open("fuzz_state.pkl", "wb") as f:
@@ -586,14 +600,13 @@ class _TCPHandler:
 
         iteration_count = 1  # Iteration count variable
 
-        # Check if we have a saved state from previous crash
+        # 이전 크래시 상태 확인
         crash_state = self.load_crash_state()
         if crash_state:
-            # Resume from saved state
+            # 이전 상태에서 재개
             iteration_count = crash_state['iteration_count']
             last_mutated_value = crash_state['mutated_value']
             element_name = crash_state['element_name']
-            # Load the XML and set the last mutated value
             root = ET.fromstring(xml_string)
             for elem in root.iter():
                 if elem.tag == element_name:
@@ -601,43 +614,43 @@ class _TCPHandler:
                     break
             start_element_index = elements_to_modify.index(element_name)
         else:
-            # Start from scratch
+            # 처음부터 시작
             start_element_index = 0
             root = ET.fromstring(xml_string)
 
         for element_name in elements_to_modify[start_element_index:]:
-            # Find the element and apply mutations
+            # 엘리먼트를 찾아서 변이 적용
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # Assign default value if empty
+                    # 값이 비어 있을 경우 기본 값 할당
                     if not elem.text:
-                        elem.text = "1"  # Example default value "1"
+                        elem.text = "1"  # 예시 기본 값
 
-                    mutated_value = elem.text  # Initial value
+                    mutated_value = elem.text  # 초기 값
 
-                    for _ in range(100):  # Mutate 100 times
-                        # Randomly select one of the 4 mutation functions
+                    for _ in range(100):  # 100번 변이
+                        # 4가지 변이 함수 중 무작위 선택
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # Perform randomly selected mutation function
+                        mutated_value = mutation_func(mutated_value)
 
-                        # If mutated value is empty, revert to previous value
+                        # 변이된 값이 비어 있으면 이전 값으로 복원
                         if not mutated_value:
                             print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # Restore previous value
+                            mutated_value = elem.text
 
                         elem.text = mutated_value
 
-                        # Serialize mutated XML
+                        # 변이된 XML 직렬화
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                        # Print separator and debugging messages
+                        # 디버깅 메시지 출력
                         print(f"\n{'=' * 40}")
                         print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
-                        # EXI encoding and sending
+                        # EXI 인코딩 및 전송
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
@@ -645,34 +658,61 @@ class _TCPHandler:
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
 
-                            # Wait for response
+                            # 응답 대기
                             response_received = self.wait_for_response()
                             if response_received:
-                                # Proceed to next mutation
                                 pass
                             else:
-                                # Charger crashed
-                                # Save mutated input and iteration count
+                                # 충전기가 크래시되었을 경우 상태 저장 후 대기
                                 self.save_crash_state(iteration_count, mutated_value, element_name)
-                                # Wait for charger to restart
                                 self.wait_for_charger_restart()
-                                # Continue from the same point
-                                # Reinitialize root with the last mutated value
+
+                                # 충전기가 다시 시작되면 퍼징 재개
                                 root = ET.fromstring(xml_string)
                                 for elem in root.iter():
                                     if elem.tag == element_name:
                                         elem.text = mutated_value
                                         break
-                                continue  # Continue from the same iteration
+                                continue  # 같은 이터레이션에서 재개
 
-                        # Iteration count increment
+                        # 이터레이션 수 증가
                         iteration_count += 1
-
                         time.sleep(0.2)
 
-                    # After completing mutations for an element, delete crash state if any
+                    # 엘리먼트 변이 완료 후 크래시 상태 파일 삭제
                     self.delete_crash_state()
-    
+
+    def wait_for_response(self, timeout=5):
+        self.charger_crashed = False  # Reset flag
+        self.response_received = False  # Flag to check if a normal response was received
+
+        def stop_filter(pkt):
+            if pkt.haslayer(TCP):
+                # Check for RST flag without port filtering
+                if pkt[TCP].flags & 0x04:  # RST flag
+                    print("Received TCP RST from", pkt[IP].src, "Charger may have crashed.")
+                    self.charger_crashed = True
+                    return True
+                # Check for normal response with payload and correct ports
+                elif pkt[TCP].sport == self.destinationPort and pkt[TCP].dport == self.sourcePort:
+                    if len(pkt[TCP].payload) > 0:
+                        # Normal response received
+                        self.response_received = True
+                        return True
+            return False
+
+        sniff(iface=self.iface, stop_filter=stop_filter, timeout=timeout)
+
+        if self.charger_crashed:
+            return False
+        elif self.response_received:
+            return True
+        else:
+            # No response received within timeout
+            print("No response received within timeout. Charger may have crashed.")
+            self.charger_crashed = True
+            return False
+
     def save_crash_state(self, iteration_count, mutated_value, element_name):
         crash_state = {
             'iteration_count': iteration_count,
@@ -697,58 +737,15 @@ class _TCPHandler:
             os.remove(self.crash_state_file)
             print("Deleted crash state file.")
 
-    def wait_for_response(self, timeout=5):
-        self.charger_crashed = False  # Reset flag
-
-        def stop_filter(pkt):
-            if pkt.haslayer(TCP) and pkt[TCP].sport == self.destinationPort and pkt[TCP].dport == self.sourcePort:
-                # Debugging: 출력해서 플래그 확인
-                print(f"Received packet: {pkt.summary()}")
-                print(f"TCP Flags: {pkt[TCP].flags}")
-
-                if pkt[TCP].flags & 0x04:  # RST flag
-                    print("Received TCP RST. Charger may have crashed.")
-                    self.charger_crashed = True
-                    return True
-                elif len(pkt[TCP].payload) > 0:
-                    # Normal response received
-                    print("Received normal response")
-                    self.charger_crashed = False
-                    return True
-            return False
-
-        print("Waiting for response...")
-        sniff(iface=self.iface, timeout=timeout, stop_filter=stop_filter)
-
-        if self.charger_crashed:
-            print("Charger crashed. Resetting or taking necessary actions.")
-        else:
-            print("Response received successfully.")
-
-    def check_charger_online(self):
-        # Send a SYN packet and wait for SYN-ACK
-        syn_pkt = Ether(src=self.sourceMAC, dst=self.destinationMAC) / \
-                  IPv6(src=self.sourceIP, dst=self.destinationIP) / \
-                  TCP(sport=self.sourcePort, dport=self.destinationPort, flags='S', seq=self.seq)
-        response = srp1(syn_pkt, iface=self.iface, timeout=2, verbose=0)
-        if response and response.haslayer(TCP) and response[TCP].flags & 0x12 == 0x12:  # SYN-ACK
-            # Send ACK to complete handshake
-            ack_pkt = Ether(src=self.sourceMAC, dst=self.destinationMAC) / \
-                      IPv6(src=self.sourceIP, dst=self.destinationIP) / \
-                      TCP(sport=self.sourcePort, dport=self.destinationPort, flags='A', seq=self.seq+1, ack=response[TCP].seq+1)
-            sendp(ack_pkt, iface=self.iface, verbose=0)
-            return True
-        else:
-            return False
     def wait_for_charger_restart(self):
-        print("Waiting for charger to restart...")
-        while True:
-            if self.check_charger_online():
-                print("Charger is back online.")
-                break
-            else:
-                print("Charger is still offline, waiting...")
-                time.sleep(5)  # Wait before checking again
+        print("Waiting for 30 seconds before restarting the fuzzing process...")
+        
+        # 30초 대기
+        time.sleep(30)
+        
+        # 대기 후 바로 재시작
+        print("Resuming fuzzing process after charger restart.")
+
 
     def value_flip(self, value):
         if len(value) < 2:
@@ -996,3 +993,4 @@ if __name__ == "__main__":
     finally:
         pev.setState(PEVState.A)
         del pev
+
