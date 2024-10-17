@@ -637,23 +637,23 @@ class _TCPHandler:
                         time.sleep(0.2)
 
     def save_fuzzing_state(self, mutated_value, iteration_count):
-    state = {
-        'mutated_value': mutated_value,
-        'iteration_count': iteration_count
-    }
-    with open('fuzzing_state.json', 'w') as f:
-        json.dump(state, f)
-    print(f"Saved fuzzing state to file.")
+        state = {
+            'mutated_value': mutated_value,
+            'iteration_count': iteration_count
+        }
+        with open('fuzzing_state.json', 'w') as f:
+            json.dump(state, f)
+        print(f"Saved fuzzing state to file.")
 
-    def load_fuzzing_state(self):
-        state_file = 'fuzzing_state.json'
-        if os.path.exists(state_file):
-            with open(state_file, 'r') as f:
-                state = json.load(f)
-                self.iteration_count = state['iteration_count']
-                print(f"Resuming fuzzing from iteration {self.iteration_count}")
-        else:
-            self.iteration_count = 1  # Start from scratch
+        def load_fuzzing_state(self):
+            state_file = 'fuzzing_state.json'
+            if os.path.exists(state_file):
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                    self.iteration_count = state['iteration_count']
+                    print(f"Resuming fuzzing from iteration {self.iteration_count}")
+            else:
+                self.iteration_count = 1  # Start from scratch
 
 
     def monitor_response(self, mutated_value):
