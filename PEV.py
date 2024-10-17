@@ -564,19 +564,6 @@ class _TCPHandler:
         xml_string = ET.tostring(handler.root, encoding='unicode')
         self.fuzz_payload(xml_string)
 
-
-        if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
-            print("INFO (PEV) : Received SYNACK")
-            self.startSession()
-        elif pkt[TCP].flags & 0x01:  # FIN flag
-            self.fin()
-
-        # Proceed with handling the packet and fuzzing
-        handler = PacketHandler()
-        handler.SupportedAppProtocolRequest()
-        xml_string = ET.tostring(handler.root, encoding='unicode')
-        self.fuzz_payload(xml_string)
-
     def save_state_and_restart(self):
         # Save the current state
         with open("fuzz_state.pkl", "wb") as f:
@@ -753,6 +740,15 @@ class _TCPHandler:
             return True
         else:
             return False
+    def wait_for_charger_restart(self):
+        print("Waiting for charger to restart...")
+        while True:
+            if self.check_charger_online():
+                print("Charger is back online.")
+                break
+            else:
+                print("Charger is still offline, waiting...")
+                time.sleep(5)  # Wait before checking again
 
     def value_flip(self, value):
         if len(value) < 2:
