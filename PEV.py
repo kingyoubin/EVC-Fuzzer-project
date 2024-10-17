@@ -434,6 +434,11 @@ class _TCPHandler:
         self.timeout = 5
 
         self.soc = 10
+        self.state_file = 'fuzz_state.json'
+        self.fuzz_state = {}
+        self.load_fuzz_state()
+        self.last_response_time = time.time()
+        self.running = True
 
     def start(self):
         self.msgList = {}
@@ -555,7 +560,14 @@ class _TCPHandler:
             self.startSession()
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
+        elif pkt[TCP].flags & 0x04:  # RST flag
+            print("INFO (PEV): Received RST")
+            self.running = False
+            self.save_fuzz_state()
+            return
 
+        # Update last response time
+        self.last_response_time = time.time()
 
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
@@ -566,44 +578,57 @@ class _TCPHandler:
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
-        iteration_count = 1  # Iteration 카운트 변수 초기화
+        element_index = self.fuzz_state.get('element_index', 0)
+        iteration_count = self.fuzz_state.get('iteration_count', 1)
 
-        for element_name in elements_to_modify:
-            # XML 파싱
+        elements_to_modify = elements_to_modify[element_index:]
+
+        for idx, element_name in enumerate(elements_to_modify):
+            self.fuzz_state['element_index'] = element_index + idx
+            self.fuzz_state['element_name'] = element_name
+
+            # XML parsing
             root = ET.fromstring(xml_string)
 
-            # 요소 찾기 및 변이 적용 (최대 100회)
+            # Find the element
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # 값이 없을 경우 기본값 할당
-                    if not elem.text:
-                        elem.text = "1"  # 예시로 기본값 "1" 할당
+                    # If resuming, set the mutated value
+                    if self.fuzz_state.get('mutated_value') and iteration_count > 1:
+                        mutated_value = self.fuzz_state['mutated_value']
+                        elem.text = mutated_value
+                    else:
+                        if not elem.text:
+                            elem.text = "1"  # Default value
+                        mutated_value = elem.text  # Initial value
 
-                    mutated_value = elem.text  # 초기값 설정
+                    for iteration in range(iteration_count, 101):
+                        self.fuzz_state['iteration_count'] = iteration
 
-                    for _ in range(100):  # 변이 100번 반복
-                        # 변이 함수 4개 중 하나를 랜덤으로 선택
+                        # Randomly select mutation function
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # 랜덤으로 선택된 변이 함수 수행
+                        self.fuzz_state['mutation_function'] = mutation_func.__name__
 
-                        # 변이 후 값이 비어 있으면 원래 값으로 복구
+                        mutated_value = mutation_func(mutated_value)
+
                         if not mutated_value:
                             print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                            mutated_value = elem.text  # 이전 값을 복구
+                            mutated_value = elem.text
 
                         elem.text = mutated_value
+                        self.fuzz_state['mutated_value'] = mutated_value
 
-                        # 변이된 XML 직렬화
+                        # Fuzzed XML
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                        # 구분선과 디버깅 메시지 출력
+                        # Debug messages
                         print(f"\n{'=' * 40}")
-                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                        print(f"[Iteration {iteration}] Mutated {element_name} using {mutation_func.__name__}:")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
-                        # EXI 인코딩 및 전송
+                        # EXI encoding and sending
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
@@ -611,13 +636,56 @@ class _TCPHandler:
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
 
-                        # Iteration 카운트 증가
-                        iteration_count += 1
+                        # Save the state
+                        self.save_fuzz_state()
 
-                        time.sleep(0.2)
+                        # Wait for response
+                        max_wait_time = 5  # seconds
+                        time_waited = 0
+                        poll_interval = 0.1  # seconds
 
-                    # 다음 변이를 위해 마지막 변이 값을 유지
-                    elem.text = mutated_value
+                        while self.running and time_waited < max_wait_time:
+                            time.sleep(poll_interval)
+                            time_waited += poll_interval
+
+                        if not self.running or time.time() - self.last_response_time > max_wait_time:
+                            print("INFO (PEV): No response or RST received, stopping fuzzing")
+                            self.save_fuzz_state()
+                            return
+
+                        # Iteration count is managed by self.fuzz_state['iteration_count']
+
+                    # Reset iteration count after inner loop
+                    iteration_count = 1
+                    self.fuzz_state['iteration_count'] = 1
+                    self.fuzz_state['mutated_value'] = None
+
+            # After outer loop, reset element index
+            self.fuzz_state['element_index'] = 0
+
+        # Remove the state file since fuzzing is completed
+        if os.path.exists(self.state_file):
+            os.remove(self.state_file)
+            print(f"INFO (PEV) : Fuzzing completed, state file {self.state_file} removed.")
+
+
+    def load_fuzz_state(self):
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'r') as f:
+                self.fuzz_state = json.load(f)
+            print(f"INFO (PEV) : Loaded fuzzing state from {self.state_file}")
+        else:
+            self.fuzz_state = {
+                'element_index': 0,
+                'iteration_count': 1,
+                'mutated_value': None,
+                'element_name': None,
+                'mutation_function': None
+            }
+
+    def save_fuzz_state(self):
+        with open(self.state_file, 'w') as f:
+            json.dump(self.fuzz_state, f)
 
     def value_flip(self, value):
         if len(value) < 2:
