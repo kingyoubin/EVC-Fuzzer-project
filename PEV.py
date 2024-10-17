@@ -11,9 +11,16 @@ import sys, os
 sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 
-from threading import Thread
+from threading import Thread, Event
 import binascii
+import os
+import random
+import argparse
+import json
+import time
+import string
 
+from scapy.all import Ether, sendp, IPv6, TCP, AsyncSniffer, ICMPv6ND_NA, ICMPv6ND_NS, ICMPv6NDOptDstLLAddr
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
@@ -22,11 +29,6 @@ from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 from XMLFormat import PacketHandler
 import xml.etree.ElementTree as ET
-import binascii
-import os.path
-import random
-import argparse
-
 
 class PEV:
 
