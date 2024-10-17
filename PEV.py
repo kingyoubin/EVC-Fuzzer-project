@@ -663,31 +663,29 @@ class _TCPHandler:
         # Sniff for a response packet
         response_packets = sniff(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer(TCP) and x[IPv6].src == self.destinationIP and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+            lfilter=lambda x: x.haslayer(TCP) and x.getlayer(IPv6).src == self.destinationIP and x.getlayer(TCP).sport == self.destinationPort and x.getlayer(TCP).dport == self.sourcePort,
             timeout=response_timeout,
             count=1
         )
 
         if len(response_packets) == 0:
             # No response received within timeout
-            # Stop fuzzing, save mutation value and iteration count
             self.save_fuzzing_state(mutated_value, self.iteration_count)
             print(f"No response received after sending mutation. Stopping fuzzing.")
             self.stop_fuzzing = True
-            return False  # Stop fuzzing
+            return False
         else:
             # Response received
             response_packet = response_packets[0]
             if response_packet.haslayer(TCP) and response_packet[TCP].flags & 0x04:
                 # RST flag is set
-                # Stop fuzzing, save mutation value and iteration count
                 self.save_fuzzing_state(mutated_value, self.iteration_count)
                 print(f"Received RST packet. Stopping fuzzing.")
                 self.stop_fuzzing = True
-                return False  # Stop fuzzing
+                return False
             else:
                 # Continue fuzzing
-                return True  # Continue fuzzing
+                return True
 
     def value_flip(self, value):
         if len(value) < 2:
