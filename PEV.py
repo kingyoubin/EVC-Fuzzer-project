@@ -1,11 +1,3 @@
-"""
-    Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
-
-    This class is used to emulate a PEV when talking to an EVSE. Handles level 2 SLAC communications
-    and level 3 UDP and TCP communications to the charging station.
-"""
-
-# need to do this to import the custom SECC and V2G scapy layer
 import sys, os
 
 sys.path.append("./external_libs/HomePlugPWN")
@@ -30,6 +22,7 @@ from NMAPScanner import NMAPScanner
 from XMLFormat import PacketHandler
 import xml.etree.ElementTree as ET
 
+
 class PEV:
 
     def __init__(self, args):
@@ -43,9 +36,9 @@ class PEV:
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
         self.nmapPorts = []
         if args.nmap_ports:
-            for arg in args.nmap_port[0].split(','):
+            for arg in args.nmap_ports[0].split(','):
                 if "-" in arg:
-                    i1,i2 = arg.split("-")
+                    i1, i2 = arg.split("-")
                     for i in range(int(i1), int(i2)+1):
                         self.nmapPorts.append(i)
                 else:
@@ -57,11 +50,8 @@ class PEV:
 
         self.exi = EXIProcessor(self.protocol)
         self.slac = _SLACHandler(self)
-        self.xml = PacketHandler()  # PacketHandler 객체 초기화
-        self.tcp = _TCPHandler(self)  # PacketHandler 객체 전달
-
-        # I2C bus for relays
-        # self.bus = SMBus(1)
+        self.xml = PacketHandler()
+        self.tcp = _TCPHandler(self)
 
         # Constants for i2c controlled relays
         self.I2C_ADDR = 0x20
@@ -72,9 +62,6 @@ class PEV:
         self.ALL_OFF = 0b0
 
     def start(self):
-        # Initialize the smbus for I2C commands
-        # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
-
         self.toggleProximity()
         self.doSLAC()
         self.doTCP()
@@ -102,13 +89,10 @@ class PEV:
     def setState(self, state: PEVState):
         if state == PEVState.A:
             print("INFO (PEV) : Going to state A")
-            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
         elif state == PEVState.B:
             print("INFO (PEV) : Going to state B")
-            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1)
         elif state == PEVState.C:
             print("INFO (PEV) : Going to state C")
-            # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.PEV_PP | self.PEV_CP1 | self.PEV_CP2)
 
     def toggleProximity(self, t: int = 5):
         self.openProximity()
@@ -123,7 +107,7 @@ class _SLACHandler:
         self.iface = self.pev.iface
         self.sourceMAC = self.pev.sourceMAC
         self.sourceIP = self.pev.sourceIP
-        self.runID = b"\xf4\x00\x37\xd0\x00\x5c\x00\x7f"
+        self.runID = os.urandom(8)
 
         self.timeSinceLastPkt = time.time()
         self.timeout = 8  # How long to wait for a message to timeout
@@ -133,9 +117,6 @@ class _SLACHandler:
     def start(self):
         self.runID = os.urandom(8)
         self.stop = False
-        # Thread for sniffing packets and handling responses
-        # self.sniffThread = Thread(target=self.startSniff)
-        # self.sniffThread.start()
 
         self.sniffThread = AsyncSniffer(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
         self.sniffThread.start()
@@ -156,9 +137,6 @@ class _SLACHandler:
                 print("INFO (PEV) : Timed out... Sending SLAC_PARM_REQ")
                 sendp(self.buildSlacParmReq(), iface=self.iface, verbose=0)
                 self.timeSinceLastPkt = time.time()
-
-    def startSniff(self):
-        sniff(iface=self.iface, prn=self.handlePacket, stop_filter=self.stopSniff)
 
     # Stop the thread when the slac match is done
     def stopSniff(self, pkt):
@@ -189,12 +167,9 @@ class _SLACHandler:
             sendp(startSoundsPkts, iface=self.iface, verbose=0, inter=0.05)
             print(f"INFO (PEV) : Sending {self.numSounds} MNBC_SOUND_IND")
             sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
-            # self.stopSounds = False
-            # Thread(target=self.sendSounds).start()
             return
 
         if pkt.haslayer("CM_ATTEN_CHAR_IND"):
-            self.stopSounds = True
             print("INFO (PEV) : Recieved ATTEN_CHAR_IND")
             print("INFO (PEV) : Sending ATTEN_CHAR_RES")
             sendp(self.buildAttenCharRes(), iface=self.iface, verbose=0)
@@ -219,24 +194,6 @@ class _SLACHandler:
         print("INFO (PEV) : Sending 3 SECC_RequestMessage")
         for i in range(1):
             sendp(self.buildSECCRequest(), iface=self.iface, verbose=0)
-
-    def sendSounds(self):
-        self.numRemainingSounds = self.numSounds
-        print("INFO (PEV) : Sending 3 START_ATTEN_CHAR_IND")
-        for i in range(3):
-            if self.stopSounds:
-                return
-            sendp(self.buildStartAttenCharInd(), iface=self.iface, verbose=0)
-            self.timeSinceLastPkt = time.time()
-        print(f"INFO (PEV) : Sending {self.numSounds} MNBC_SOUND_IND")
-        soundPkts = [self.buildMNBCSoundInd() for i in range(self.numSounds)]
-        sendp(soundPkts, iface=self.iface, verbose=0, inter=0.05)
-        self.timeSinceLastPkt = time.time()
-        # for i in range(self.numSounds):
-        #     if self.stopSounds: return
-        #     sendp(self.buildMNBCSoundInd(), iface=self.iface, verbose=0)
-        #     self.timeSinceLastPkt = time.time()
-        print("INFO (PEV) : Done sending sounds")
 
     def buildSlacParmReq(self):
         ethLayer = Ether()
@@ -397,11 +354,7 @@ class _SLACHandler:
         return responsePacket
 
     def sendNeighborSoliciation(self, pkt):
-        # if self.stop: exit()
-        # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
-        # self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
-        # print("INFO (EVSE): Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
 
 
@@ -430,29 +383,48 @@ class _TCPHandler:
         self.startSniff = False
         self.finishedNMAP = False
         self.lastPort = 0
-        
+
         self.scanner = None
 
         self.timeout = 5
 
         self.soc = 10
+
+        # Initialize fuzzing state
         self.state_file = 'fuzz_state.json'
         self.fuzz_state = {}
         self.load_fuzz_state()
-        self.last_response_time = time.time()
         self.running = True
+
+        # For tracking received packets from target
+        self.packet_received = False
+        self.packet_event = Event()
+
+    def load_fuzz_state(self):
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'r') as f:
+                self.fuzz_state = json.load(f)
+            print(f"INFO (PEV) : Loaded fuzzing state from {self.state_file}")
+        else:
+            self.fuzz_state = {
+                'element_index': 0,
+                'iteration_count': 1,
+                'mutated_value': None,
+                'element_name': None,
+                'mutation_function': None
+            }
+
+    def save_fuzz_state(self):
+        with open(self.state_file, 'w') as f:
+            json.dump(self.fuzz_state, f)
 
     def start(self):
         self.msgList = {}
-        self.running = True
         self.prechargeCount = 0
         print("INFO (PEV) : Starting TCP")
 
-        # self.sendNeighborSolicitation()
-
         self.recvThread = AsyncSniffer(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
             prn=self.handlePacket,
             started_callback=self.setStartSniff,
         )
@@ -460,9 +432,6 @@ class _TCPHandler:
 
         self.handshakeThread = Thread(target=self.handshake)
         self.handshakeThread.start()
-
-        ## self.timeoutThread = Thread(target=self.checkForTimeout)
-        ## self.timeoutThread.start()
 
         self.neighborSolicitationThread = AsyncSniffer(
             iface=self.iface, lfilter=lambda x: x.haslayer("ICMPv6ND_NS") and x[ICMPv6ND_NS].tgt == self.sourceIP, prn=self.sendNeighborAdvertisement
@@ -472,21 +441,9 @@ class _TCPHandler:
         while self.running:
             time.sleep(1)
 
-    def checkForTimeout(self):
-        print("INFO (PEV) : Starting timeout thread")
-        self.lastMessageTime = time.time()
-        while True:
-            # if self.stop: break
-            if time.time() - self.lastMessageTime > self.timeout or self.running == False:
-                print("INFO (PEV) : TCP timed out, resetting connection...")
-                # self.reset()
-                self.killThreads()
-                break
-            time.sleep(1)
-
     def killThreads(self):
         print("INFO (PEV) : Killing sniffing threads")
-        if self.scanner != None:
+        if self.scanner is not None:
             self.scanner.stop()
         self.running = False
         if self.recvThread.running:
@@ -494,17 +451,8 @@ class _TCPHandler:
         if self.neighborSolicitationThread.running:
             self.neighborSolicitationThread.stop()
 
-    def recv(self):
-        print("INFO (PEV) : Starting recv thread")
-        sniff(
-            iface=self.iface,
-            lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
-            prn=self.handlePacket,
-            started_callback=self.setStartSniff,
-        )
-
     def fin(self):
-        print("INFO (PEV): Recieved FIN")
+        print("INFO (PEV): Received FIN")
         self.running = False
         self.ack = self.ack + 1
 
@@ -535,10 +483,6 @@ class _TCPHandler:
 
         sendp(finAck, iface=self.iface, verbose=0)
 
-        # print("INFO (PEV) : Sending LEAVE_REQ")
-
-        # sendp(self.buildLeaveReq(), iface=self.iface, verbose=0)
-
     def setStartSniff(self):
         self.startSniff = True
 
@@ -550,32 +494,28 @@ class _TCPHandler:
             iface=self.iface,
             verbose=0,
         )
-        
 
     def handlePacket(self, pkt):
-        self.last_recv = pkt
-        self.seq = self.last_recv[TCP].ack
-        self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
+        # Check if packet is from target
+        if pkt.haslayer(IPv6) and pkt[IPv6].src == self.destinationIP:
+            self.packet_received = True
+            self.packet_event.set()
 
-        if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
-            print("INFO (PEV) : Received SYNACK")
-            self.startSession()
-        elif pkt[TCP].flags & 0x01:  # FIN flag
-            self.fin()
-        elif pkt[TCP].flags & 0x04:  # RST flag
-            print("INFO (PEV): Received RST")
-            self.running = False
-            self.save_fuzz_state()
-            return
+            if pkt.haslayer(TCP):
+                self.last_recv = pkt
+                self.seq = self.last_recv[TCP].ack
+                self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
 
-        # Update last response time
-        self.last_response_time = time.time()
-
-        handler = PacketHandler()
-        handler.SupportedAppProtocolRequest()
-        xml_string = ET.tostring(handler.root, encoding='unicode')
-        self.fuzz_payload(xml_string)
-
+                if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
+                    print("INFO (PEV) : Received SYNACK")
+                    self.startSession()
+                elif pkt[TCP].flags & 0x01:  # FIN flag
+                    self.fin()
+                elif pkt[TCP].flags & 0x04:  # RST flag
+                    print("INFO (PEV): Received RST")
+                    self.running = False
+                    self.save_fuzz_state()
+                    return
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
@@ -642,17 +582,15 @@ class _TCPHandler:
                         self.save_fuzz_state()
 
                         # Wait for response
-                        max_wait_time = 5  # seconds
-                        time_waited = 0
-                        poll_interval = 0.1  # seconds
+                        self.packet_received = False
+                        self.packet_event.clear()
+                        # Wait up to 5 seconds for a packet from the target
+                        packet_received = self.packet_event.wait(timeout=5)
 
-                        while self.running and time_waited < max_wait_time:
-                            time.sleep(poll_interval)
-                            time_waited += poll_interval
-
-                        if not self.running or time.time() - self.last_response_time > max_wait_time:
-                            print("INFO (PEV): No response or RST received, stopping fuzzing")
+                        if not packet_received:
+                            print("INFO (PEV): No packets received from target, stopping fuzzing")
                             self.save_fuzz_state()
+                            self.running = False
                             return
 
                         # Iteration count is managed by self.fuzz_state['iteration_count']
@@ -670,28 +608,9 @@ class _TCPHandler:
             os.remove(self.state_file)
             print(f"INFO (PEV) : Fuzzing completed, state file {self.state_file} removed.")
 
-
-    def load_fuzz_state(self):
-        if os.path.exists(self.state_file):
-            with open(self.state_file, 'r') as f:
-                self.fuzz_state = json.load(f)
-            print(f"INFO (PEV) : Loaded fuzzing state from {self.state_file}")
-        else:
-            self.fuzz_state = {
-                'element_index': 0,
-                'iteration_count': 1,
-                'mutated_value': None,
-                'element_name': None,
-                'mutation_function': None
-            }
-
-    def save_fuzz_state(self):
-        with open(self.state_file, 'w') as f:
-            json.dump(self.fuzz_state, f)
-
     def value_flip(self, value):
         if len(value) < 2:
-            return value  # 두 글자 미만이면 교환 불가
+            return value  # Cannot flip characters in a string less than 2 characters
         idx1, idx2 = random.sample(range(len(value)), 2)
         value_list = list(value)
         value_list[idx1], value_list[idx2] = value_list[idx2], value_list[idx1]
@@ -717,20 +636,17 @@ class _TCPHandler:
     def random_insertion(self, value):
         if len(value) == 0:
             return value
-        
-        # 삽입할 위치를 임의로 선택
+
+        # Randomly choose an index to insert
         insert_idx = random.randrange(len(value)+1)
 
-        # 랜덤하게 삽입할 문자 선택 (영문 대소문자, 숫자 중에서 선택)
+        # Randomly choose a character to insert
         random_char = random.choice(string.ascii_letters + string.digits)
 
-        # 문자열을 리스트로 변환하여 삽입
         value_list = list(value)
         value_list.insert(insert_idx, random_char)
 
-        # 리스트를 다시 문자열로 변환하여 반환
         return ''.join(value_list)
-
 
     def buildV2G(self, payload):
         ethLayer = Ether()
@@ -753,62 +669,6 @@ class _TCPHandler:
         v2gLayer.Payload = payload
 
         return ethLayer / ipLayer / tcpLayer / v2gLayer
-
-    def getXMLFromPayload(self, data):
-        data = binascii.hexlify(data)
-        xmlString = self.exi.decode(data)
-        root = ET.fromstring(xmlString)
-
-        if root.text is None:
-            if "AppProtocol" in root.tag:
-                self.xml.SessionSetupRequest()
-                return self.xml.getString()
-
-            name = root[1][0].tag
-            if "SessionSetupRes" in name:
-                self.xml.ServiceDiscoveryRequest()
-                self.SessionID = root[0][0].text
-            elif "ServiceDiscoveryRes" in name:
-                self.xml.ServicePaymentSelectionRequest()
-            elif "ServicePaymentSelectionRes" in name:
-                self.xml.ContractAuthenticationRequest()
-            elif "ContractAuthenticationRes" in name:
-                if root[1][0][1].text == "Ongoing":
-                    self.xml.ContractAuthenticationRequest()
-                    if self.pev.mode == RunMode.SCAN:
-                        if self.scanner is None:
-                            nmapMAC = self.pev.nmapMAC if self.pev.nmapMAC else self.destinationMAC
-                            nmapIP = self.pev.nmapIP if self.pev.nmapIP else self.destinationIP
-                            self.scanner = NMAPScanner(EmulatorType.PEV, self.pev.nmapPorts, self.iface, self.sourceMAC, self.sourceIP, nmapMAC, nmapIP)
-                        self.scanner.start()
-                else:
-                    self.xml.ChargeParameterDiscoveryRequest()
-            elif "ChargeParameterDiscoveryRes" in name:
-                if root[1][0][1].text == "Ongoing":
-                    self.xml.ChargeParameterDiscoveryRequest()
-                else:
-                    self.pev.setState(PEVState.C)
-                    self.xml.CableCheckRequest()
-            elif "CableCheckRes" in name:
-                if root[1][0][2].text == "Ongoing":
-                    self.xml.CableCheckRequest()
-                else:
-                    self.xml.PreChargeRequest()
-            elif "PreChargeRes" in name:
-                currentVoltage = int(root[1][0][2][2].text)
-                if abs(currentVoltage - 400) < 10:
-                    self.xml.PowerDeliveryRequest()
-                else:
-                    self.xml.PreChargeRequest()
-            elif "PowerDeliveryRes" in name:
-                self.xml.CurrentDemandRequest()
-            elif "CurrentDemandRes" in name:
-                self.xml.CurrentDemandRequest()
-            else:
-                raise Exception(f'Packet type "{name}" not recognized')
-
-            self.xml.SessionID.text = self.SessionID
-            return self.xml.getString()
 
     def handshake(self):
         while not self.startSniff:
@@ -861,23 +721,9 @@ class _TCPHandler:
         sendp(pkt, iface=self.iface, verbose=0)
 
     def sendNeighborAdvertisement(self, pkt):
-        # if self.stop: exit()
-        # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
         self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
-        # print("INFO (EVSE): Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
-
-    def buildLeaveReq(self):
-        ethLayer = Ether()
-        ethLayer.src = self.sourceMAC
-        # ethLayer.dst = self.destinationMAC
-        ethLayer.dst = "bc:f2:af:f2:0a:7b"
-
-        hpLayer = HomePlugAV(binascii.unhexlify(b"01340000000100000000000000000000000000000000000000000000000000000000000000000000000000000000"))
-
-        pkt = ethLayer / hpLayer
-        return pkt
 
     def buildNeighborAdvertisement(self):
         ethLayer = Ether()
@@ -903,10 +749,10 @@ class _TCPHandler:
 
         responsePacket = ethLayer / ipLayer / icmpLayer / optLayer
         return responsePacket
-    
+
 
 if __name__ == "__main__":
-    # Parse arguements from command line
+    # Parse arguments from command line
     parser = argparse.ArgumentParser(description="PEV emulator for AcCCS")
     parser.add_argument(
         "-M",
@@ -915,14 +761,14 @@ if __name__ == "__main__":
         type=int,
         help="Mode for emulator to run in: 0 for full conversation, 1 for stalling the conversation, 2 for portscanning (default: 0)",
     )
-    parser.add_argument("-I", "--interface", nargs=1, help="Ethernet interface to send/recieve packets on (default: eth1)")
+    parser.add_argument("-I", "--interface", nargs=1, help="Ethernet interface to send/receive packets on (default: eth1)")
     parser.add_argument("--source-mac", nargs=1, help="Source MAC address of packets (default: 00:1e:c0:f2:6c:a0)")
     parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::21e:c0ff:fef2:72f3)")
-    parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: 25565)")
+    parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: random port)")
     parser.add_argument("-p", "--protocol", nargs=1, help="Protocol for EXI encoding/decoding: DIN, ISO-2, ISO-20 (default: DIN)")
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
-    parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
+    parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan separated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
     args = parser.parse_args()
 
     pev = PEV(args)
