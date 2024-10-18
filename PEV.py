@@ -369,9 +369,8 @@ class _TCPHandler:
         self.destinationIP = self.pev.destinationIP
         self.destinationPort = self.pev.destinationPort
 
-        self.seq = 10000
-        self.ack = 0
-        self.sessionID = "00"
+        self.seq = 10000  # Initial sequence number for our side
+        self.ack = 0      # Initial acknowledgment number
 
         self.exi = self.pev.exi
         self.xml = self.pev.xml
@@ -400,7 +399,7 @@ class _TCPHandler:
 
         self.recvThread = AsyncSniffer(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+            lfilter=lambda x: x.haslayer("TCP") and x[IPv6].src == self.destinationIP and x[IPv6].dst == self.sourceIP and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
             prn=self.handlePacket,
             started_callback=self.setStartSniff,
         )
@@ -477,13 +476,17 @@ class _TCPHandler:
         self.startSniff = True
 
     def startSession(self):
+        self.seq += 1  # Increment sequence number after SYN
+        ack_number = self.ack + 1  # Acknowledge the SYN-ACK
+
         sendp(
             Ether(src=self.sourceMAC, dst=self.destinationMAC)
             / IPv6(src=self.sourceIP, dst=self.destinationIP)
-            / TCP(sport=self.sourcePort, dport=self.destinationPort, flags="A", seq=self.seq, ack=self.ack + 1),
+            / TCP(sport=self.sourcePort, dport=self.destinationPort, flags="A", seq=self.seq, ack=ack_number),
             iface=self.iface,
             verbose=0,
         )
+        self.ack = ack_number
         # Signal that the handshake is complete
         self.handshake_complete.set()
 
@@ -496,8 +499,15 @@ class _TCPHandler:
 
     def handlePacket(self, pkt):
         self.last_recv = pkt
-        self.seq = self.last_recv[TCP].ack
-        self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
+
+        tcp_layer = pkt[TCP]
+        payload_len = len(bytes(tcp_layer.payload))
+
+        # Update sequence and acknowledgment numbers
+        if payload_len > 0:
+            self.ack = tcp_layer.seq + payload_len
+        else:
+            self.ack = tcp_layer.seq + 1  # For packets without payload (e.g., SYN-ACK, FIN)
 
         if pkt[TCP].flags & 0x04:  # RST flag
             print("INFO (PEV) : Received RST")
@@ -507,6 +517,7 @@ class _TCPHandler:
 
         if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
             print("INFO (PEV) : Received SYNACK")
+            self.ack = tcp_layer.seq + 1
             self.startSession()
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
@@ -563,8 +574,10 @@ class _TCPHandler:
                         if exi_payload is not None:
                             exi_payload_bytes = binascii.unhexlify(exi_payload)
                             packet = self.buildV2G(exi_payload_bytes)
+                            # Calculate the actual TCP payload length
+                            tcp_payload_length = len(bytes(packet[TCP].payload))
                             sendp(packet, iface=self.iface, verbose=0)
-                            self.seq += len(exi_payload_bytes)
+                            self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
 
                         # Increment iteration counter
                         iteration_count += 1
@@ -650,7 +663,11 @@ class _TCPHandler:
         v2gLayer.PayloadLen = len(payload)
         v2gLayer.Payload = payload
 
-        return ethLayer / ipLayer / tcpLayer / v2gLayer
+        tcpLayer.add_payload(v2gLayer)
+
+        packet = ethLayer / ipLayer / tcpLayer
+
+        return packet
 
     def handshake(self):
         while not self.startSniff:
