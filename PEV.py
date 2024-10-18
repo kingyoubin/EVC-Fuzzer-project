@@ -390,6 +390,7 @@ class _TCPHandler:
 
         self.response_received = Event()
         self.rst_received = False
+        self.handshake_complete = Event()  # Added to signal handshake completion
 
     def start(self):
         self.msgList = {}
@@ -413,18 +414,32 @@ class _TCPHandler:
         )
         self.neighborSolicitationThread.start()
 
+        # Start the fuzzing process in a separate thread after handshake completion
+        self.fuzzingThread = Thread(target=self.wait_and_start_fuzzing)
+        self.fuzzingThread.start()
+
         while self.running:
             time.sleep(1)
+
+    def wait_and_start_fuzzing(self):
+        # Wait for handshake to complete
+        self.handshake_complete.wait()
+        # Now start fuzzing
+        self.send_fuzzing_messages()
 
     def killThreads(self):
         print("INFO (PEV) : Killing sniffing threads")
         if self.scanner is not None:
             self.scanner.stop()
         self.running = False
-        if self.recvThread.running:
-            self.recvThread.stop()
         if self.neighborSolicitationThread.running:
             self.neighborSolicitationThread.stop()
+        if self.recvThread.running:
+            if threading.current_thread() != self.recvThread.thread:
+                self.recvThread.stop()
+            else:
+                # Schedule stopping the thread after it returns
+                threading.Thread(target=self.recvThread.stop).start()
 
     def fin(self):
         print("INFO (PEV): Received FIN")
@@ -469,9 +484,8 @@ class _TCPHandler:
             iface=self.iface,
             verbose=0,
         )
-
-        # Now that the TCP handshake is complete, start the fuzzing process
-        self.send_fuzzing_messages()
+        # Signal that the handshake is complete
+        self.handshake_complete.set()
 
     def send_fuzzing_messages(self):
         # Build the initial XML message
@@ -540,6 +554,10 @@ class _TCPHandler:
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
+                        # Clear response_received event before sending
+                        self.response_received.clear()
+                        self.rst_received = False
+
                         # EXI encoding and sending
                         exi_payload = self.exi.encode(fuzzed_xml)
                         if exi_payload is not None:
@@ -550,10 +568,6 @@ class _TCPHandler:
 
                         # Increment iteration counter
                         iteration_count += 1
-
-                        # Clear response_received event
-                        self.response_received.clear()
-                        self.rst_received = False
 
                         # Wait for response
                         response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
