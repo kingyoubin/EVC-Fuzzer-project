@@ -568,6 +568,11 @@ class _TCPHandler:
                 self.response_received = True
                 self.response_event.set()
 
+        handler = PacketHandler()
+        handler.SupportedAppProtocolRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        self.fuzz_payload(xml_string)
+
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
