@@ -26,6 +26,8 @@ import binascii
 import os.path
 import random
 import argparse
+import string
+import time
 
 
 class PEV:
@@ -434,6 +436,10 @@ class _TCPHandler:
         self.timeout = 5
 
         self.soc = 10
+        
+        self.response_event = Event()
+        self.response_received = False
+        self.lock = threading.Lock()
 
     def start(self):
         self.msgList = {}
@@ -556,12 +562,11 @@ class _TCPHandler:
         elif pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
 
-
-        handler = PacketHandler()
-        handler.SupportedAppProtocolRequest()
-        xml_string = ET.tostring(handler.root, encoding='unicode')
-        self.fuzz_payload(xml_string)
-
+        # 응답 패킷 확인
+        if self.is_response_packet(pkt):
+            with self.lock:
+                self.response_received = True
+                self.response_event.set()
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
@@ -611,6 +616,19 @@ class _TCPHandler:
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += len(exi_payload_bytes)
 
+                        # 응답 이벤트 초기화 및 플래그 리셋
+                        with self.lock:
+                            self.response_received = False
+                            self.response_event.clear()
+
+                        # 응답 대기 (타임아웃 5초)
+                        response = self.response_event.wait(timeout=5)
+
+                        if response and self.response_received:
+                            print(f"INFO (PEV) : Received response for iteration {iteration_count}")
+                        else:
+                            print(f"WARNING (PEV) : No response for iteration {iteration_count}")
+
                         # Iteration 카운트 증가
                         iteration_count += 1
 
@@ -618,6 +636,33 @@ class _TCPHandler:
 
                     # 다음 변이를 위해 마지막 변이 값을 유지
                     elem.text = mutated_value
+
+    def is_response_packet(self, pkt):
+        """
+        전기차 충전기로부터의 TCP 응답 패킷인지 확인하는 메서드.
+        """
+        # 패킷에 TCP 레이어가 있는지 확인
+        if not pkt.haslayer(TCP):
+            return False
+        
+        tcp_layer = pkt[TCP]
+        ip_layer = pkt[IPv6] if pkt.haslayer(IPv6) else pkt[IP]
+        
+        # 소스 IP와 포트가 전기차 충전기의 IP와 포트와 일치하는지 확인
+        if ip_layer.src != self.pev.destinationIP:
+            return False
+        
+        if tcp_layer.sport != self.pev.destinationPort:
+            return False
+        
+        # 목적지 IP와 포트가 PEV의 IP와 포트와 일치하는지 확인
+        if ip_layer.dst != self.pev.sourceIP:
+            return False
+        
+        if tcp_layer.dport != self.pev.sourcePort:
+            return False
+        
+        return True
 
     def value_flip(self, value):
         if len(value) < 2:
