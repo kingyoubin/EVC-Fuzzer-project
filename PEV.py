@@ -649,24 +649,32 @@ class _TCPHandler:
         # 패킷에 TCP 레이어가 있는지 확인
         if not pkt.haslayer(TCP):
             return False
-        
+
         tcp_layer = pkt[TCP]
         ip_layer = pkt[IPv6] if pkt.haslayer(IPv6) else pkt[IP]
-        
+
+        src_ip = ip_layer.src
+        src_port = tcp_layer.sport
+        dst_ip = ip_layer.dst
+        dst_port = tcp_layer.dport
+
+        # 디버깅 출력 추가
+        print(f"DEBUG: Received packet from {src_ip}:{src_port} to {dst_ip}:{dst_port}")
+
         # 소스 IP와 포트가 전기차 충전기의 IP와 포트와 일치하는지 확인
-        if ip_layer.src != self.pev.destinationIP:
+        if src_ip != self.pev.destinationIP:
             return False
-        
-        if tcp_layer.sport != self.pev.destinationPort:
+
+        if src_port != self.pev.destinationPort:
             return False
-        
+
         # 목적지 IP와 포트가 PEV의 IP와 포트와 일치하는지 확인
-        if ip_layer.dst != self.pev.sourceIP:
+        if dst_ip != self.pev.sourceIP:
             return False
-        
-        if tcp_layer.dport != self.pev.sourcePort:
+
+        if dst_port != self.pev.sourcePort:
             return False
-        
+
         return True
 
     def value_flip(self, value):
