@@ -568,7 +568,6 @@ class _TCPHandler:
 
                         # Increment iteration counter
                         iteration_count += 1
-                        time.sleep(0.2)
 
                         # Wait for response
                         response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
