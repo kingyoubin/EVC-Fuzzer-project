@@ -18,6 +18,7 @@ import random
 import argparse
 import time
 import string
+import json
 
 class PEV:
 
@@ -30,6 +31,8 @@ class PEV:
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
+        self.iterations_per_element = args.iterations_per_element[0] if args.interations_per_elemnet else 100
+
         self.nmapPorts = []
         if args.nmap_ports:
             for arg in args.nmap_ports[0].split(','):
@@ -47,7 +50,8 @@ class PEV:
         self.exi = EXIProcessor(self.protocol)
         self.slac = _SLACHandler(self)
         self.xml = PacketHandler()
-        self.tcp = _TCPHandler(self)
+        self.iterations_per_element = args.iterations_per_element
+        self.tcp = _TCPHandler(self, self.iterations_per_element)
 
         # Constants for i2c controlled relays (commented out as per your original code)
         self.I2C_ADDR = 0x20
@@ -357,7 +361,7 @@ class _SLACHandler:
 
 
 class _TCPHandler:
-    def __init__(self, pev: PEV):
+    def __init__(self, pev: PEV, iterations_per_element):
         self.pev = pev
         self.iface = self.pev.iface
 
@@ -390,6 +394,12 @@ class _TCPHandler:
         self.response_received = Event()
         self.rst_received = False
         self.handshake_complete = Event()  # Added to signal handshake completion
+
+        # Fuzzing parameters
+        self.iterations_per_element = iterations_per_element
+        self.state_file = 'fuzzing_state.json'
+        self.state = {}
+        self.elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
 
     def start(self):
         self.msgList = {}
@@ -495,6 +505,11 @@ class _TCPHandler:
         handler = PacketHandler()
         handler.SupportedAppProtocolRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
+
+        # Load fuzzing state
+        self.load_state()
+
+        # Fuzz each element
         self.fuzz_payload(xml_string)
 
     def handlePacket(self, pkt):
@@ -526,15 +541,19 @@ class _TCPHandler:
         self.response_received.set()
 
     def fuzz_payload(self, xml_string):
-        elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
+        elements_to_modify = self.elements_to_modify
 
-        iteration_count = 1  # Iteration counter
+        # Starting index of element to fuzz
+        current_element_index = self.state.get('current_element_index', 0)
+        iteration_count = self.state.get('iterations', {})
+        crash_info = self.state.get('crash_info', {})
 
-        for element_name in elements_to_modify:
+        for idx in range(current_element_index, len(elements_to_modify)):
+            element_name = elements_to_modify[idx]
             # Parse XML
             root = ET.fromstring(xml_string)
 
-            # Find the element and apply mutations (up to 100 times)
+            # Find the element
             for elem in root.iter():
                 if elem.tag == element_name:
                     # Assign default value if empty
@@ -543,7 +562,9 @@ class _TCPHandler:
 
                     mutated_value = elem.text  # Initial value
 
-                    for _ in range(100):  # Perform mutation 100 times
+                    start_iteration = iteration_count.get(element_name, 0)
+
+                    for iteration in range(start_iteration, self.iterations_per_element):
                         # Randomly select one of the four mutation functions
                         mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
                         mutated_value = mutation_func(mutated_value)  # Perform the randomly selected mutation
@@ -560,7 +581,7 @@ class _TCPHandler:
 
                         # Debugging messages
                         print(f"\n{'=' * 40}")
-                        print(f"[Iteration {iteration_count}] Mutated {element_name} using {mutation_func.__name__}:")
+                        print(f"[{element_name}] Iteration {iteration+1}: Mutated using {mutation_func.__name__}")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
@@ -579,27 +600,49 @@ class _TCPHandler:
                             sendp(packet, iface=self.iface, verbose=0)
                             self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
 
-                        # Increment iteration counter
-                        iteration_count += 1
+                        # Update iteration count
+                        iteration_count[element_name] = iteration + 1
 
                         # Wait for response
                         response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
 
-                        if not response:
-                            # No response received
-                            print("No response received, stopping fuzzing.")
-                            self.killThreads()
-                            return
-                        if self.rst_received:
-                            # RST received
-                            print("RST received, stopping fuzzing.")
+                        if not response or self.rst_received:
+                            # No response received or RST received
+                            print("No response received or RST received, stopping fuzzing.")
+                            # Save state
+                            self.state['current_element_index'] = idx
+                            self.state['iterations'] = iteration_count
+                            self.state['crash_info'] = {
+                                'element': element_name,
+                                'iteration': iteration + 1,
+                                'mutated_value': mutated_value
+                            }
+                            self.save_state()
                             self.killThreads()
                             return
 
                         # Proceed to next iteration
 
-                    # For the next mutation, keep the last mutated value
-                    elem.text = mutated_value
+                    # Reset iteration count for this element
+                    iteration_count[element_name] = 0
+
+                    # Move to next element
+                    self.state['current_element_index'] = idx + 1
+
+            # If we have completed fuzzing for this element
+            print(f"Completed fuzzing for element {element_name}")
+
+        # Fuzzing completed for all elements
+        print("Fuzzing completed for all elements.")
+        # Remove state file
+        if os.path.exists(self.state_file):
+            os.remove(self.state_file)
+        # Report crash info if any
+        if self.state.get('crash_info'):
+            print("Crash occurred during fuzzing:")
+            print(self.state['crash_info'])
+        else:
+            print("No crash occurred during fuzzing.")
 
     def value_flip(self, value):
         if len(value) < 2:
@@ -727,6 +770,26 @@ class _TCPHandler:
         responsePacket = ethLayer / ipLayer / icmpLayer / optLayer
         return responsePacket
 
+    def load_state(self):
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'r') as f:
+                self.state = json.load(f)
+            print(f"Loaded fuzzing state from {self.state_file}")
+        else:
+            # Initialize state
+            self.state = {
+                'current_element_index': 0,
+                'iterations': {},
+                'crash_info': {}
+            }
+            for element in self.elements_to_modify:
+                self.state['iterations'][element] = 0
+
+    def save_state(self):
+        with open(self.state_file, 'w') as f:
+            json.dump(self.state, f)
+        print(f"Saved fuzzing state to {self.state_file}")
+
 if __name__ == "__main__":
     # Parse arguments from command line
     parser = argparse.ArgumentParser(description="PEV emulator for AcCCS")
@@ -745,6 +808,7 @@ if __name__ == "__main__":
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
     parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan separated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
+    parser.add_argument('--iterations-per-element', type=int, default=1000, help='Number of fuzzing iterations per element (default: 1000)')
     args = parser.parse_args()
 
     pev = PEV(args)
