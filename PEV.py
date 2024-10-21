@@ -31,6 +31,8 @@ class PEV:
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
+        self.iterations_per_element = args.iterations_per_element[0] if args.interations_per_elemnet else "100"
+
         self.nmapPorts = []
         if args.nmap_ports:
             for arg in args.nmap_ports[0].split(','):
