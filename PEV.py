@@ -31,7 +31,7 @@ class PEV:
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
-        self.iterations_per_element = args.iterations_per_element if args.iterations_per_element else 60
+        self.iterations_per_element = args.iterations_per_element
 
         self.nmapPorts = []
         if args.nmap_ports:
@@ -50,7 +50,7 @@ class PEV:
         self.exi = EXIProcessor(self.protocol)
         self.slac = _SLACHandler(self)
         self.xml = PacketHandler()
-        # self.iterations_per_element = args.iterations_per_element
+        self.iterations_per_element = args.iterations_per_element
         self.tcp = _TCPHandler(self, self.iterations_per_element)
 
         # Constants for i2c controlled relays (commented out as per your original code)
@@ -808,7 +808,7 @@ if __name__ == "__main__":
     parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: SECC MAC address)")
     parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: SECC IP address)")
     parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan separated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
-    parser.add_argument('--iterations-per-element', type=int, default=1000, help='Number of fuzzing iterations per element (default: 1000)')
+    parser.add_argument('--iterations-per-element', type=int, default=10, help='Number of fuzzing iterations per element (default: 1000)')
     args = parser.parse_args()
 
     pev = PEV(args)
