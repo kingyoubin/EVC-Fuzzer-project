@@ -400,12 +400,20 @@ class _TCPHandler:
         self.state_file = 'fuzzing_state.json'
         self.state = {}
         self.elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
+        
+        # Initialize crash tracking
+        self.crash_info = []  # List to store crash details
+        self.total_attempts = 0
+        self.total_crashes = 0
+        self.state_lock = threading.Lock()
 
     def start(self):
         self.msgList = {}
         self.running = True
         self.prechargeCount = 0
         print("INFO (PEV) : Starting TCP")
+
+        self.load_state()  # Load existing state before starting
 
         self.recvThread = AsyncSniffer(
             iface=self.iface,
@@ -546,7 +554,10 @@ class _TCPHandler:
         # Starting index of element to fuzz
         current_element_index = self.state.get('current_element_index', 0)
         iteration_count = self.state.get('iterations', {})
-        crash_info = self.state.get('crash_info', {})
+        crash_info = self.state.get('crash_info', [])
+        crash_inputs = self.state.get('crash_inputs', [])
+        total_attempts = self.state.get('total_attempts', 0)
+        total_crashes = self.state.get('total_crashes', 0)
 
         for idx in range(current_element_index, len(elements_to_modify)):
             element_name = elements_to_modify[idx]
@@ -586,6 +597,10 @@ class _TCPHandler:
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
 
+                        # Increment total attempts
+                        self.state['total_attempts'] = total_attempts + 1
+                        total_attempts += 1
+
                         # Clear response_received event before sending
                         self.response_received.clear()
                         self.rst_received = False
@@ -601,22 +616,28 @@ class _TCPHandler:
                             self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
 
                         # Update iteration count
-                        iteration_count[element_name] = iteration + 1
+                        self.state['iterations'][element_name] = iteration + 1
 
                         # Wait for response
                         response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
 
                         if not response or self.rst_received:
                             # No response received or RST received
-                            print("No response received or RST received, stopping fuzzing.")
-                            # Save state
-                            self.state['current_element_index'] = idx
-                            self.state['iterations'] = iteration_count
-                            self.state['crash_info'] = {
+                            print("No response received or RST received, recording crash.")
+                            # Increment crash count
+                            self.state['total_crashes'] = total_crashes + 1
+                            total_crashes += 1
+
+                            # Record the crashing input
+                            crash_detail = {
                                 'element': element_name,
                                 'iteration': iteration + 1,
-                                'mutated_value': mutated_value
+                                'mutated_value': mutated_value,
+                                'fuzzed_xml': fuzzed_xml
                             }
+                            self.state['crash_inputs'].append(crash_detail)
+
+                            # Save state
                             self.save_state()
                             self.killThreads()
                             return
@@ -624,25 +645,37 @@ class _TCPHandler:
                         # Proceed to next iteration
 
                     # Reset iteration count for this element
-                    iteration_count[element_name] = 0
+                    self.state['iterations'][element_name] = 0
 
                     # Move to next element
                     self.state['current_element_index'] = idx + 1
 
-            # If we have completed fuzzing for this element
-            print(f"Completed fuzzing for element {element_name}")
-
         # Fuzzing completed for all elements
         print("Fuzzing completed for all elements.")
-        # Remove state file
+        # Remove state file if exists
         if os.path.exists(self.state_file):
             os.remove(self.state_file)
-        # Report crash info if any
-        if self.state.get('crash_info'):
-            print("Crash occurred during fuzzing:")
-            print(self.state['crash_info'])
-        else:
-            print("No crash occurred during fuzzing.")
+        # Generate summary report
+        self.generate_report()
+
+    def generate_report(self):
+        report = {
+            'total_attempts': self.state.get('total_attempts', 0),
+            'total_crashes': self.state.get('total_crashes', 0),
+            'crash_details': self.state.get('crash_inputs', [])
+        }
+
+        report_file = 'fuzzing_report.json'
+        with open(report_file, 'w') as f:
+            json.dump(report, f, indent=4)
+
+        print(f"\n{'=' * 40}")
+        print("Fuzzing Summary Report")
+        print(f"Total Attempts: {report['total_attempts']}")
+        print(f"Total Crashes: {report['total_crashes']}")
+        print(f"Crash Details saved in {report_file}")
+        print(f"{'=' * 40}\n")
+
 
     def value_flip(self, value):
         if len(value) < 2:
@@ -780,14 +813,17 @@ class _TCPHandler:
             self.state = {
                 'current_element_index': 0,
                 'iterations': {},
-                'crash_info': {}
+                'crash_info': [],
+                'total_attempts': 0,
+                'total_crashes': 0,
+                'crash_inputs': []
             }
             for element in self.elements_to_modify:
                 self.state['iterations'][element] = 0
 
     def save_state(self):
         with open(self.state_file, 'w') as f:
-            json.dump(self.state, f)
+            json.dump(self.state, f, indent=4)
         print(f"Saved fuzzing state to {self.state_file}")
 
 if __name__ == "__main__":
