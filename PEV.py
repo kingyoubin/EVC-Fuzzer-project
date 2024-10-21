@@ -50,7 +50,7 @@ class PEV:
         self.exi = EXIProcessor(self.protocol)
         self.slac = _SLACHandler(self)
         self.xml = PacketHandler()
-        self.iterations_per_element = args.iterations_per_element
+        # self.iterations_per_element = args.iterations_per_element
         self.tcp = _TCPHandler(self, self.iterations_per_element)
 
         # Constants for i2c controlled relays (commented out as per your original code)
