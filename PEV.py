@@ -545,7 +545,7 @@ class _TCPHandler:
             iface=self.iface,
             verbose=0,
         )
-        self.seq += 1  # Increment our sequence number after sending the ACK
+        ## self.seq += 1  # Increment our sequence number after sending the ACK
         print("INFO (PEV): Sending ACK to complete the handshake")
         # Signal that the handshake is complete
         self.handshake_complete.set()
@@ -566,6 +566,12 @@ class _TCPHandler:
         self.last_recv = pkt
         tcp_layer = pkt[TCP]
 
+        # Update sequence and acknowledgment numbers
+        if len(tcp_layer.payload) > 0:
+            self.ack = tcp_layer.seq + len(tcp_layer.payload)
+        else:
+            self.ack = tcp_layer.seq + 1  # For packets without payload
+
         # Check for RST flag
         if tcp_layer.flags & 0x04:  # RST flag
             print("INFO (PEV): Received RST")
@@ -576,9 +582,8 @@ class _TCPHandler:
         # Check for SYN-ACK
         if (tcp_layer.flags & 0x12) == 0x12:  # SYN and ACK flags set
             print("INFO (PEV): Received SYN-ACK")
-            self.server_isn = tcp_layer.seq
             self.ack = tcp_layer.seq + 1  # Acknowledge the server's SYN
-            # Do not increment self.seq here
+            self.seq += 1  # Increment our sequence number after sending ACK
             self.startSession()
             return
 
@@ -590,36 +595,26 @@ class _TCPHandler:
         # For any packet, set response_received
         self.response_received.set()
 
-        # Update acknowledgment number for data packets
-        payload_len = len(bytes(tcp_layer.payload))
-        if payload_len > 0:
-            self.ack = tcp_layer.seq + payload_len
-        else:
-            self.ack = tcp_layer.seq
-        # For any packet, set response_received
-        self.response_received.set()
-
         # Process V2GTP layer if present
         if pkt.haslayer("V2GTP"):
             v2gtp_layer = pkt["V2GTP"]
             exi_payload = v2gtp_layer.Payload
 
+            # Decode the EXI payload
             try:
-                xml_string = self.exi.decode(binascii.hexlify(exi_payload).decode())
+                exi_payload_hex = binascii.hexlify(exi_payload).decode()
+                xml_string = self.exi.decode(exi_payload_hex)
+                print(f"DEBUG: Decoded XML:\n{xml_string}")
                 root = ET.fromstring(xml_string)
             except Exception as e:
                 print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
                 return
 
             # Check if it's a SupportedAppProtocolResponse
-            if "supportedAppProtocolRes" in root.tag:
+            if root.tag.endswith('SupportedAppProtocolRes'):
                 print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
-                # Check conditions
-                if root.text is None and "AppProtocol" in root.tag:
-                    print("INFO (TCPHandler): SupportedAppProtocolResponse meets conditions, starting fuzzing.")
-                    self.fuzzing_ready.set()
-                else:
-                    print("INFO (TCPHandler): SupportedAppProtocolResponse does not meet conditions, not starting fuzzing.")
+                # Set the fuzzing_ready event
+                self.fuzzing_ready.set()
                 return
 
     def fuzz_payload(self, xml_string):
