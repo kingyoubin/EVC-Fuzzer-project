@@ -601,7 +601,7 @@ class _TCPHandler:
             data = pkt[Raw].load
             v2g = V2GTP(data)
             payload = v2g.payload
-            data_hex = binascii.hexlify(payload)
+            data_hex = binascii.hexlify(payload).decode()
             try:
                 xmlString = self.exi.decode(data_hex)
                 print(f"DEBUG: Decoded XML:\n{xmlString}")
