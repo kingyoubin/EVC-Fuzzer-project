@@ -600,6 +600,8 @@ class _TCPHandler:
             v2gtp_layer = pkt["V2GTP"]
             exi_payload = v2gtp_layer.Payload
 
+            print(f"DEBUG: Received EXI payload (hex): {binascii.hexlify(exi_payload).decode()}")
+
             # Decode the EXI payload
             try:
                 exi_payload_hex = binascii.hexlify(exi_payload).decode()
@@ -610,12 +612,19 @@ class _TCPHandler:
                 print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
                 return
 
-            # Check if it's a SupportedAppProtocolResponse
-            if root.tag.endswith('SupportedAppProtocolRes'):
+            # Get the local name of the root tag without namespace
+            root_tag = ET.QName(root.tag).localname
+
+            if root_tag == 'SupportedAppProtocolRes':
                 print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
-                # Set the fuzzing_ready event
                 self.fuzzing_ready.set()
                 return
+
+            # Handle other messages if necessary
+
+        else:
+            # Handle cases where V2GTP layer is not present
+            print("WARNING: V2GTP layer not found in received packet.")
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = self.elements_to_modify
