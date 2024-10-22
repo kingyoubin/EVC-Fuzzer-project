@@ -600,7 +600,7 @@ class _TCPHandler:
         if pkt.haslayer(Raw):
             data = pkt[Raw].load
             v2g = V2GTP(data)
-            payload = v2g.payload
+            payload = v2g.Payload
             data_hex = binascii.hexlify(payload).decode()
             try:
                 xmlString = self.exi.decode(data_hex)
