@@ -596,40 +596,28 @@ class _TCPHandler:
         self.response_received.set()
 
         # Process V2GTP layer if present
-        if pkt.haslayer("V2GTP"):
-            v2gtp_layer = pkt["V2GTP"]
-            exi_payload = v2gtp_layer.Payload
-        else:
-            # Try to extract from Raw layer
-            if pkt.haslayer(Raw):
-                print("WARNING: V2GTP layer not found in received packet. Attempting to construct V2GTP from Raw layer.")
-                try:
-                    data = pkt[Raw].load
-                    v2g = V2GTP(data)
-                    exi_payload = v2g.Payload
-                except Exception as e:
-                    print(f"ERROR: Failed to construct V2GTP from Raw layer: {e}")
-                    return
-            else:
-                print("ERROR: No Raw layer found in packet. Cannot extract V2GTP payload.")
+    # Process the data
+        if pkt.haslayer(Raw):
+            data = pkt[Raw].load
+            data_hex = binascii.hexlify(data).decode()
+            try:
+                xmlString = self.exi.decode(data_hex)
+                print(f"DEBUG: Decoded XML:\n{xmlString}")
+                root = ET.fromstring(xmlString)
+
+                if root.text is None:
+                    if "AppProtocol" in root.tag:
+                        print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
+                        self.fuzzing_ready.set()
+                        return
+                else:
+                    # Handle other messages if necessary
+                    pass
+            except Exception as e:
+                print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
                 return
-
-        # Proceed to decode the EXI payload
-        try:
-            exi_payload_hex = binascii.hexlify(exi_payload).decode()
-            xml_string = self.exi.decode(exi_payload_hex)
-            print(f"DEBUG: Decoded XML:\n{xml_string}")
-            root = ET.fromstring(xml_string)
-        except Exception as e:
-            print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
-            return
-
-        # Get the local name of the root tag without namespace
-        root_tag = ET.QName(root.tag).localname
-
-        if root_tag == 'supportedAppProtocolRes' or root_tag == 'SupportedAppProtocolRes':
-            print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
-            self.fuzzing_ready.set()
+        else:
+            print("WARNING: No Raw layer found in packet. Cannot extract data.")
             return
 
     def fuzz_payload(self, xml_string):
