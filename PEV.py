@@ -532,7 +532,8 @@ class _TCPHandler:
 
     def startSession(self):
         self.seq += 1  # Increment sequence number after SYN
-        ack_number = self.ack + 1  # Acknowledge the SYN-ACK
+        # The acknowledgment number is already set in handlePacket
+        ack_number = self.ack
 
         sendp(
             Ether(src=self.sourceMAC, dst=self.destinationMAC)
@@ -541,7 +542,7 @@ class _TCPHandler:
             iface=self.iface,
             verbose=0,
         )
-        self.ack = ack_number
+        print("INFO (PEV): Sending ACK to complete the handshake")
         # Signal that the handshake is complete
         self.handshake_complete.set()
 
@@ -569,18 +570,23 @@ class _TCPHandler:
         else:
             self.ack = tcp_layer.seq + 1  # For packets without payload (e.g., SYN-ACK, FIN)
 
+        # Check for RST flag
         if pkt[TCP].flags & 0x04:  # RST flag
-            print("INFO (PEV) : Received RST")
+            print("INFO (PEV): Received RST")
             self.rst_received = True
             self.response_received.set()
             return
 
-        if pkt[TCP].flags & 0x12 == 0x12:  # SYN-ACK flags set
-            print("INFO (PEV) : Received SYNACK")
-            self.ack = tcp_layer.seq + 1
+        # Check for SYN-ACK
+        if (pkt[TCP].flags & 0x12) == 0x12:  # SYN and ACK flags set
+            print("INFO (PEV): Received SYN-ACK")
+            self.ack = tcp_layer.seq + 1  # Acknowledge the server's SYN
+            self.seq += 1  # Increment our sequence number
             self.startSession()
             return
-        elif pkt[TCP].flags & 0x01:  # FIN flag
+
+        # Check for FIN flag
+        if pkt[TCP].flags & 0x01:  # FIN flag
             self.fin()
             return
 
@@ -609,6 +615,7 @@ class _TCPHandler:
                 else:
                     print("INFO (TCPHandler): SupportedAppProtocolResponse does not meet conditions, not starting fuzzing.")
                 return
+
 
         if pkt[TCP].flags & 0x04:  # RST flag
             print("INFO (PEV) : Received RST")
