@@ -531,17 +531,21 @@ class _TCPHandler:
         self.startSniff = True
 
     def startSession(self):
-        self.seq += 1  # Increment sequence number after SYN
-        # The acknowledgment number is already set in handlePacket
-        ack_number = self.ack
-
+        # Send ACK to complete handshake
         sendp(
             Ether(src=self.sourceMAC, dst=self.destinationMAC)
             / IPv6(src=self.sourceIP, dst=self.destinationIP)
-            / TCP(sport=self.sourcePort, dport=self.destinationPort, flags="A", seq=self.seq, ack=ack_number),
+            / TCP(
+                sport=self.sourcePort,
+                dport=self.destinationPort,
+                flags="A",
+                seq=self.seq,
+                ack=self.ack
+            ),
             iface=self.iface,
             verbose=0,
         )
+        self.seq += 1  # Increment our sequence number after sending the ACK
         print("INFO (PEV): Sending ACK to complete the handshake")
         # Signal that the handshake is complete
         self.handshake_complete.set()
@@ -560,36 +564,38 @@ class _TCPHandler:
 
     def handlePacket(self, pkt):
         self.last_recv = pkt
-
         tcp_layer = pkt[TCP]
-        payload_len = len(bytes(tcp_layer.payload))
-
-        # Update sequence and acknowledgment numbers
-        if payload_len > 0:
-            self.ack = tcp_layer.seq + payload_len
-        else:
-            self.ack = tcp_layer.seq + 1  # For packets without payload (e.g., SYN-ACK, FIN)
 
         # Check for RST flag
-        if pkt[TCP].flags & 0x04:  # RST flag
+        if tcp_layer.flags & 0x04:  # RST flag
             print("INFO (PEV): Received RST")
             self.rst_received = True
             self.response_received.set()
             return
 
         # Check for SYN-ACK
-        if (pkt[TCP].flags & 0x12) == 0x12:  # SYN and ACK flags set
+        if (tcp_layer.flags & 0x12) == 0x12:  # SYN and ACK flags set
             print("INFO (PEV): Received SYN-ACK")
+            self.server_isn = tcp_layer.seq
             self.ack = tcp_layer.seq + 1  # Acknowledge the server's SYN
-            self.seq += 1  # Increment our sequence number
+            # Do not increment self.seq here
             self.startSession()
             return
 
         # Check for FIN flag
-        if pkt[TCP].flags & 0x01:  # FIN flag
+        if tcp_layer.flags & 0x01:  # FIN flag
             self.fin()
             return
 
+        # For any packet, set response_received
+        self.response_received.set()
+
+        # Update acknowledgment number for data packets
+        payload_len = len(bytes(tcp_layer.payload))
+        if payload_len > 0:
+            self.ack = tcp_layer.seq + payload_len
+        else:
+            self.ack = tcp_layer.seq
         # For any packet, set response_received
         self.response_received.set()
 
@@ -615,23 +621,6 @@ class _TCPHandler:
                 else:
                     print("INFO (TCPHandler): SupportedAppProtocolResponse does not meet conditions, not starting fuzzing.")
                 return
-
-
-        if pkt[TCP].flags & 0x04:  # RST flag
-            print("INFO (PEV) : Received RST")
-            self.rst_received = True
-            self.response_received.set()
-            return
-
-        if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
-            print("INFO (PEV) : Received SYNACK")
-            self.ack = tcp_layer.seq + 1
-            self.startSession()
-        elif pkt[TCP].flags & 0x01:  # FIN flag
-            self.fin()
-
-        # For any packet, set response_received
-        self.response_received.set()
 
     def fuzz_payload(self, xml_string):
         elements_to_modify = self.elements_to_modify
