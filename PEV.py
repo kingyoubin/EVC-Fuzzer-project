@@ -560,31 +560,6 @@ class _TCPHandler:
     def handlePacket(self, pkt):
         self.last_recv = pkt
 
-        # Check if packet has V2GTP layer
-        if not pkt.haslayer("V2GTP"):
-            return
-
-        v2gtp_layer = pkt["V2GTP"]
-        exi_payload = v2gtp_layer.Payload
-
-        try:
-            xml_string = self.exi.decode(binascii.hexlify(exi_payload).decode())
-            root = ET.fromstring(xml_string)
-        except Exception as e:
-            print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
-            return
-
-        # Check if it's a SupportedAppProtocolResponse
-        if "supportedAppProtocolRes" in root.tag:
-            print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
-            # Check conditions
-            if root.text is None and "AppProtocol" in root.tag:
-                print("INFO (TCPHandler): SupportedAppProtocolResponse meets conditions, starting fuzzing.")
-                self.fuzzing_ready.set()
-            else:
-                print("INFO (TCPHandler): SupportedAppProtocolResponse does not meet conditions, not starting fuzzing.")
-            return
-
         tcp_layer = pkt[TCP]
         payload_len = len(bytes(tcp_layer.payload))
 
@@ -593,6 +568,47 @@ class _TCPHandler:
             self.ack = tcp_layer.seq + payload_len
         else:
             self.ack = tcp_layer.seq + 1  # For packets without payload (e.g., SYN-ACK, FIN)
+
+        if pkt[TCP].flags & 0x04:  # RST flag
+            print("INFO (PEV) : Received RST")
+            self.rst_received = True
+            self.response_received.set()
+            return
+
+        if pkt[TCP].flags & 0x12 == 0x12:  # SYN-ACK flags set
+            print("INFO (PEV) : Received SYNACK")
+            self.ack = tcp_layer.seq + 1
+            self.startSession()
+            return
+        elif pkt[TCP].flags & 0x01:  # FIN flag
+            self.fin()
+            return
+
+        # For any packet, set response_received
+        self.response_received.set()
+
+        # Process V2GTP layer if present
+        if pkt.haslayer("V2GTP"):
+            v2gtp_layer = pkt["V2GTP"]
+            exi_payload = v2gtp_layer.Payload
+
+            try:
+                xml_string = self.exi.decode(binascii.hexlify(exi_payload).decode())
+                root = ET.fromstring(xml_string)
+            except Exception as e:
+                print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
+                return
+
+            # Check if it's a SupportedAppProtocolResponse
+            if "supportedAppProtocolRes" in root.tag:
+                print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
+                # Check conditions
+                if root.text is None and "AppProtocol" in root.tag:
+                    print("INFO (TCPHandler): SupportedAppProtocolResponse meets conditions, starting fuzzing.")
+                    self.fuzzing_ready.set()
+                else:
+                    print("INFO (TCPHandler): SupportedAppProtocolResponse does not meet conditions, not starting fuzzing.")
+                return
 
         if pkt[TCP].flags & 0x04:  # RST flag
             print("INFO (PEV) : Received RST")
