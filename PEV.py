@@ -599,7 +599,9 @@ class _TCPHandler:
     # Process the data
         if pkt.haslayer(Raw):
             data = pkt[Raw].load
-            data_hex = binascii.hexlify(data).decode()
+            v2g = V2GTP(data)
+            payload = v2g.payload
+            data_hex = binascii.hexlify(payload)
             try:
                 xmlString = self.exi.decode(data_hex)
                 print(f"DEBUG: Decoded XML:\n{xmlString}")
