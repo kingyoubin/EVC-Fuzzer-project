@@ -726,149 +726,149 @@ class _TCPHandler:
                         # Move to next element
                         self.state['current_element_index'] = idx + 1
 
-        def generate_report(self):
-            report = {
-                'total_attempts': self.state.get('total_attempts', 0),
-                'total_crashes': self.state.get('total_crashes', 0),
-                'crash_details': self.state.get('crash_inputs', [])
+    def generate_report(self):
+        report = {
+            'total_attempts': self.state.get('total_attempts', 0),
+            'total_crashes': self.state.get('total_crashes', 0),
+            'crash_details': self.state.get('crash_inputs', [])
+        }
+
+        report_file = 'fuzzing_report.json'
+        with open(report_file, 'w') as f:
+            json.dump(report, f, indent=4)
+
+        print(f"\n{'=' * 40}")
+        print("Fuzzing Summary Report")
+        print(f"Total Attempts: {report['total_attempts']}")
+        print(f"Total Crashes: {report['total_crashes']}")
+        print(f"Crash Details saved in {report_file}")
+        print(f"{'=' * 40}\n")
+
+
+    def value_flip(self, value):
+        if len(value) < 2:
+            return value  # Cannot swap if less than two characters
+        idx1, idx2 = random.sample(range(len(value)), 2)
+        value_list = list(value)
+        value_list[idx1], value_list[idx2] = value_list[idx2], value_list[idx1]
+        return ''.join(value_list)
+
+    def random_value(self, value):
+        if len(value) == 0:
+            return value
+        idx = random.randrange(len(value))
+        new_char = chr(random.randint(33, 126))
+        value_list = list(value)
+        value_list[idx] = new_char
+        return ''.join(value_list)
+
+    def random_deletion(self, value):
+        if len(value) == 0:
+            return value
+        idx = random.randrange(len(value))
+        value_list = list(value)
+        del value_list[idx]
+        return ''.join(value_list)
+
+    def random_insertion(self, value):
+        if len(value) == 0:
+            return value
+
+        # Randomly select insertion position
+        insert_idx = random.randrange(len(value)+1)
+
+        # Randomly select character to insert (letters and digits)
+        random_char = random.choice(string.ascii_letters + string.digits)
+
+        # Convert string to list and insert
+        value_list = list(value)
+        value_list.insert(insert_idx, random_char)
+
+        # Convert list back to string and return
+        return ''.join(value_list)
+
+    def buildV2G(self, payload):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+
+        tcpLayer = TCP()
+        tcpLayer.sport = self.sourcePort
+        tcpLayer.dport = self.destinationPort
+        tcpLayer.seq = self.seq
+        tcpLayer.ack = self.ack
+        tcpLayer.flags = "PA"
+
+        v2gLayer = V2GTP()
+        v2gLayer.PayloadLen = len(payload)
+        v2gLayer.Payload = payload
+
+        tcpLayer.add_payload(v2gLayer)
+
+        packet = ethLayer / ipLayer / tcpLayer
+
+        return packet
+
+    def handshake(self):
+        while not self.startSniff:
+            if not self.running:
+                return
+            time.sleep(0.1)
+
+        self.destinationMAC = self.pev.destinationMAC
+        self.destinationIP = self.pev.destinationIP
+        self.destinationPort = self.pev.destinationPort
+
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+
+        tcpLayer = TCP()
+        tcpLayer.sport = self.sourcePort
+        tcpLayer.dport = self.destinationPort
+        tcpLayer.flags = "S"
+        tcpLayer.seq = self.seq
+
+        synPacket = ethLayer / ipLayer / tcpLayer
+        print("INFO (PEV) : Sending SYN")
+        sendp(synPacket, iface=self.iface, verbose=0)
+
+    def sendNeighborAdvertisement(self, pkt):
+        self.destinationMAC = pkt[Ether].src
+        self.destinationIP = pkt[IPv6].src
+        sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
+
+    def load_state(self):
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'r') as f:
+                self.state = json.load(f)
+            print(f"Loaded fuzzing state from {self.state_file}")
+        else:
+            # Initialize state
+            self.state = {
+                'current_element_index': 0,
+                'iterations': {},
+                'crash_info': [],
+                'total_attempts': 0,
+                'total_crashes': 0,
+                'crash_inputs': []
             }
+            for element in self.elements_to_modify:
+                self.state['iterations'][element] = 0
 
-            report_file = 'fuzzing_report.json'
-            with open(report_file, 'w') as f:
-                json.dump(report, f, indent=4)
-
-            print(f"\n{'=' * 40}")
-            print("Fuzzing Summary Report")
-            print(f"Total Attempts: {report['total_attempts']}")
-            print(f"Total Crashes: {report['total_crashes']}")
-            print(f"Crash Details saved in {report_file}")
-            print(f"{'=' * 40}\n")
-
-
-        def value_flip(self, value):
-            if len(value) < 2:
-                return value  # Cannot swap if less than two characters
-            idx1, idx2 = random.sample(range(len(value)), 2)
-            value_list = list(value)
-            value_list[idx1], value_list[idx2] = value_list[idx2], value_list[idx1]
-            return ''.join(value_list)
-
-        def random_value(self, value):
-            if len(value) == 0:
-                return value
-            idx = random.randrange(len(value))
-            new_char = chr(random.randint(33, 126))
-            value_list = list(value)
-            value_list[idx] = new_char
-            return ''.join(value_list)
-
-        def random_deletion(self, value):
-            if len(value) == 0:
-                return value
-            idx = random.randrange(len(value))
-            value_list = list(value)
-            del value_list[idx]
-            return ''.join(value_list)
-
-        def random_insertion(self, value):
-            if len(value) == 0:
-                return value
-
-            # Randomly select insertion position
-            insert_idx = random.randrange(len(value)+1)
-
-            # Randomly select character to insert (letters and digits)
-            random_char = random.choice(string.ascii_letters + string.digits)
-
-            # Convert string to list and insert
-            value_list = list(value)
-            value_list.insert(insert_idx, random_char)
-
-            # Convert list back to string and return
-            return ''.join(value_list)
-
-        def buildV2G(self, payload):
-            ethLayer = Ether()
-            ethLayer.src = self.sourceMAC
-            ethLayer.dst = self.destinationMAC
-
-            ipLayer = IPv6()
-            ipLayer.src = self.sourceIP
-            ipLayer.dst = self.destinationIP
-
-            tcpLayer = TCP()
-            tcpLayer.sport = self.sourcePort
-            tcpLayer.dport = self.destinationPort
-            tcpLayer.seq = self.seq
-            tcpLayer.ack = self.ack
-            tcpLayer.flags = "PA"
-
-            v2gLayer = V2GTP()
-            v2gLayer.PayloadLen = len(payload)
-            v2gLayer.Payload = payload
-
-            tcpLayer.add_payload(v2gLayer)
-
-            packet = ethLayer / ipLayer / tcpLayer
-
-            return packet
-
-        def handshake(self):
-            while not self.startSniff:
-                if not self.running:
-                    return
-                time.sleep(0.1)
-
-            self.destinationMAC = self.pev.destinationMAC
-            self.destinationIP = self.pev.destinationIP
-            self.destinationPort = self.pev.destinationPort
-
-            ethLayer = Ether()
-            ethLayer.src = self.sourceMAC
-            ethLayer.dst = self.destinationMAC
-
-            ipLayer = IPv6()
-            ipLayer.src = self.sourceIP
-            ipLayer.dst = self.destinationIP
-
-            tcpLayer = TCP()
-            tcpLayer.sport = self.sourcePort
-            tcpLayer.dport = self.destinationPort
-            tcpLayer.flags = "S"
-            tcpLayer.seq = self.seq
-
-            synPacket = ethLayer / ipLayer / tcpLayer
-            print("INFO (PEV) : Sending SYN")
-            sendp(synPacket, iface=self.iface, verbose=0)
-
-        def sendNeighborAdvertisement(self, pkt):
-            self.destinationMAC = pkt[Ether].src
-            self.destinationIP = pkt[IPv6].src
-            sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
-
-        def load_state(self):
-            if os.path.exists(self.state_file):
-                with open(self.state_file, 'r') as f:
-                    self.state = json.load(f)
-                print(f"Loaded fuzzing state from {self.state_file}")
-            else:
-                # Initialize state
-                self.state = {
-                    'current_element_index': 0,
-                    'iterations': {},
-                    'crash_info': [],
-                    'total_attempts': 0,
-                    'total_crashes': 0,
-                    'crash_inputs': []
-                }
-                for element in self.elements_to_modify:
-                    self.state['iterations'][element] = 0
-
-        def save_state(self):
-            with self.state_lock:
-                with open(self.state_file, 'w') as f:
-                    json.dump(self.state, f, indent=4)
-                print(f"Saved fuzzing state to {self.state_file}")
+    def save_state(self):
+        with self.state_lock:
+            with open(self.state_file, 'w') as f:
+                json.dump(self.state, f, indent=4)
+            print(f"Saved fuzzing state to {self.state_file}")
 
 
 if __name__ == "__main__":
