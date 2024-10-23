@@ -20,7 +20,7 @@ import time
 import string
 import json
 import threading  # Added for threading.Lock()
-
+#
 class PEV:
 
     def __init__(self, args):
@@ -400,7 +400,7 @@ class _TCPHandler:
         self.iterations_per_element = iterations_per_element
         self.state_file = 'fuzzing_state.json'
         self.state = {}
-        self.elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
+        self.elements_to_modify = ["EVCCID"]
         
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -553,7 +553,7 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.SupportedAppProtocolRequest()
+        handler.SessionSetupRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
 
         # Load fuzzing state
@@ -604,7 +604,6 @@ class _TCPHandler:
             data_hex = binascii.hexlify(payload).decode()
             try:
                 xmlString = self.exi.decode(data_hex)
-                print(f"DEBUG: Decoded XML:\n{xmlString}")
                 root = ET.fromstring(xmlString)
 
                 if root.text is None:
@@ -623,6 +622,7 @@ class _TCPHandler:
             return
 
     def fuzz_payload(self, xml_string):
+        print("INFO (TCPHandler): Starting fuzz_payload method.")
         elements_to_modify = self.elements_to_modify
 
         # Starting index of element to fuzz
@@ -639,8 +639,12 @@ class _TCPHandler:
             root = ET.fromstring(xml_string)
 
             # Find the element
+            found_element = False
             for elem in root.iter():
-                if elem.tag == element_name:
+                # Extract local tag name without namespace
+                local_tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
+                if local_tag == element_name:
+                    found_element = True
                     # Assign default value if empty
                     if not elem.text:
                         elem.text = "1"  # Assign default value "1"
@@ -737,6 +741,13 @@ class _TCPHandler:
 
                         # Move to next element
                         self.state['current_element_index'] = idx + 1
+
+                    break  # Exit the loop after processing the element
+
+            if not found_element:
+                print(f"ERROR: Element '{element_name}' not found in the XML.")
+                continue
+
 
     def generate_report(self):
         report = {
