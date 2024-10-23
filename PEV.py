@@ -639,14 +639,28 @@ class _TCPHandler:
                 # Extract local tag name without namespace
                 local_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
                 print(f"Received XML message with tag: {local_tag}")
+
                 if local_tag == "supportedAppProtocolRes":
                     print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
                     self.supported_app_response_received.set()
                     return
-                elif local_tag == "SessionSetupRes":
-                    print("INFO (TCPHandler): Received SessionSetupResponse")
-                    self.session_setup_response_received.set()
-                    return
+                elif local_tag == "V2G_Message":
+                    # Look for the specific message inside V2G_Message
+                    body = root.find('.//{*}Body')
+                    if body is not None:
+                        # Get the first child of Body
+                        message = next(iter(body))
+                        message_tag = message.tag.split('}')[-1] if '}' in message.tag else message.tag
+                        print(f"INFO (TCPHandler): Received message inside V2G_Message: {message_tag}")
+
+                        if message_tag == "SessionSetupRes":
+                            print("INFO (TCPHandler): Received SessionSetupResponse")
+                            self.session_setup_response_received.set()
+                            return
+                        else:
+                            print(f"INFO (TCPHandler): Received unknown message inside V2G_Message: {message_tag}")
+                    else:
+                        print("WARNING (TCPHandler): Body element not found in V2G_Message")
                 else:
                     print(f"INFO (TCPHandler): Received unknown message: {local_tag}")
             except Exception as e:
