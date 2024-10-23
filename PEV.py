@@ -639,7 +639,7 @@ class _TCPHandler:
                 # Extract local tag name without namespace
                 local_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
                 print(f"Received XML message with tag: {local_tag}")
-                if local_tag == "SupportedAppProtocolRes":
+                if local_tag == "supportedAppProtocolRes":
                     print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
                     self.supported_app_response_received.set()
                     return
