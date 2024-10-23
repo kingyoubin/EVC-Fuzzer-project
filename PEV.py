@@ -452,7 +452,16 @@ class _TCPHandler:
             try:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
                 sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
                 print("INFO (TCPHandler): SupportedAppProtocolRequest sent successfully")
             except binascii.Error as e:
                 print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
@@ -476,7 +485,7 @@ class _TCPHandler:
                 del packet[TCP].chksum
                 del packet[IPv6].plen
                 # Calculate the actual TCP payload length
-                tcp_payload_length = len(bytes(packet[TCP].payload))
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
                 sendp(packet, iface=self.iface, verbose=0)
                 self.seq += tcp_payload_length  # Increment sequence number
                 print("INFO (TCPHandler): SessionSetupRequest sent successfully")
@@ -739,10 +748,16 @@ class _TCPHandler:
                             try:
                                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                                 packet = self.buildV2G(exi_payload_bytes)
+                                # Set seq and ack
+                                packet[TCP].seq = self.seq
+                                packet[TCP].ack = self.ack
+                                # Recalculate checksums
+                                del packet[TCP].chksum
+                                del packet[IPv6].plen
                                 # Calculate the actual TCP payload length
-                                tcp_payload_length = len(bytes(packet[TCP].payload))
+                                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
                                 sendp(packet, iface=self.iface, verbose=0)
-                                self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
+                                self.seq += tcp_payload_length  # Increment sequence number
                             except binascii.Error as e:
                                 print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
                                 continue
