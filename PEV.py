@@ -469,16 +469,16 @@ class _TCPHandler:
             try:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
-                # Calculate the actual TCP payload length
-                tcp_payload_length = len(bytes(packet[TCP].payload))
-                # Update seq and ack numbers
+                # Set seq and ack
                 packet[TCP].seq = self.seq
                 packet[TCP].ack = self.ack
                 # Recalculate checksums
                 del packet[TCP].chksum
                 del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(bytes(packet[TCP].payload))
                 sendp(packet, iface=self.iface, verbose=0)
-                self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
+                self.seq += tcp_payload_length  # Increment sequence number
                 print("INFO (TCPHandler): SessionSetupRequest sent successfully")
             except binascii.Error as e:
                 print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
@@ -634,6 +634,7 @@ class _TCPHandler:
             data_hex = binascii.hexlify(payload).decode()
             try:
                 xmlString = self.exi.decode(data_hex)
+                print(f"Received XML:\n{xmlString}")
                 root = ET.fromstring(xmlString)
                 # Extract local tag name without namespace
                 local_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
