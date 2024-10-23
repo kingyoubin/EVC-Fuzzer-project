@@ -400,7 +400,7 @@ class _TCPHandler:
         self.iterations_per_element = iterations_per_element
         self.state_file = 'fuzzing_state.json'
         self.state = {}
-        self.elements_to_modify = ["EVCCID"]
+        self.elements_to_modify = ["ServiceCategory"]
         
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -409,7 +409,8 @@ class _TCPHandler:
         self.state_lock = threading.Lock()
 
         # Event to signal when fuzzing can start
-        self.fuzzing_ready = Event()
+        self.supported_app_response_received = Event()
+        self.session_setup_response_received = Event()
 
     def start(self):
         self.msgList = {}
@@ -458,6 +459,24 @@ class _TCPHandler:
         else:
             print("ERROR (TCPHandler): EXI encoding failed for SupportedAppProtocolRequest")
 
+    def send_session_setup_request(self):
+        print("INFO (TCPHandler): Sending SessionSetupRequest")
+        handler = PacketHandler()
+        handler.SessionSetupRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                sendp(packet, iface=self.iface, verbose=0)
+                print("INFO (TCPHandler): SessionSetupRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for SessionSetupRequest")
+
+
     def wait_and_start_fuzzing(self):
         # Wait for handshake to complete
         self.handshake_complete.wait()
@@ -466,15 +485,22 @@ class _TCPHandler:
         # Now send the SupportedAppProtocolRequest
         self.send_supported_app_protocol_request()
 
-        # Wait for fuzzing_ready event to be set after processing SupportedAppProtocolResponse
-        print("INFO (TCPHandler): Waiting for SupportedAppProtocolResponse to start fuzzing...")
-        fuzzing_ready = self.fuzzing_ready.wait(timeout=15)  # Wait for up to 15 seconds
-
-        if fuzzing_ready:
-            print("INFO (TCPHandler): Fuzzing conditions met, starting fuzzing.")
-            self.send_fuzzing_messages()
+        # Wait for SupportedAppProtocolResponse
+        print("INFO (TCPHandler): Waiting for SupportedAppProtocolResponse...")
+        if self.supported_app_response_received.wait(timeout=15):
+            print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
+            # Now send SessionSetupRequest
+            self.send_session_setup_request()
+            # Wait for SessionSetupResponse
+            print("INFO (TCPHandler): Waiting for SessionSetupResponse...")
+            if self.session_setup_response_received.wait(timeout=15):
+                print("INFO (TCPHandler): Received SessionSetupResponse, starting fuzzing.")
+                self.send_fuzzing_messages()
+            else:
+                print("WARNING (TCPHandler): SessionSetupResponse not received within timeout, not starting fuzzing.")
         else:
-            print("WARNING (TCPHandler): Fuzzing conditions not met within timeout, not starting fuzzing.")
+            print("WARNING (TCPHandler): SupportedAppProtocolResponse not received within timeout, not proceeding.")
+
 
     def killThreads(self):
         print("INFO (PEV) : Killing sniffing threads")
@@ -548,7 +574,7 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.SessionSetupRequest()
+        handler.ServiceDiscoveryRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
 
         # Load fuzzing state
@@ -604,7 +630,11 @@ class _TCPHandler:
                 if root.text is None:
                     if "AppProtocol" in root.tag:
                         print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
-                        self.fuzzing_ready.set()
+                        self.supported_app_response_received.set()
+                        return
+                    elif "SessionSetupRes" in root.tag:
+                        print("INFO (TCPHandler): Received SessionSetupResponse")
+                        self.session_setup_response_received.set()
                         return
                 else:
                     # Handle other messages if necessary
