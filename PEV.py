@@ -635,7 +635,7 @@ class _TCPHandler:
                         print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
                         self.supported_app_response_received.set()
                         return
-                    elif "SessionSetupRes" in root.tag:
+                    if "SessionSetupRes" in root.tag:
                         print("INFO (TCPHandler): Received SessionSetupResponse")
                         self.session_setup_response_received.set()
                         return
