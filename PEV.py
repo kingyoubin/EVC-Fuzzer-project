@@ -471,6 +471,12 @@ class _TCPHandler:
                 packet = self.buildV2G(exi_payload_bytes)
                 # Calculate the actual TCP payload length
                 tcp_payload_length = len(bytes(packet[TCP].payload))
+                # Update seq and ack numbers
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
                 sendp(packet, iface=self.iface, verbose=0)
                 self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
                 print("INFO (TCPHandler): SessionSetupRequest sent successfully")
@@ -629,19 +635,19 @@ class _TCPHandler:
             try:
                 xmlString = self.exi.decode(data_hex)
                 root = ET.fromstring(xmlString)
-
-                if root.text is None:
-                    if "AppProtocol" in root.tag:
-                        print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
-                        self.supported_app_response_received.set()
-                        return
-                    if "SessionSetupRes" in root.tag:
-                        print("INFO (TCPHandler): Received SessionSetupResponse")
-                        self.session_setup_response_received.set()
-                        return
+                # Extract local tag name without namespace
+                local_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
+                print(f"Received XML message with tag: {local_tag}")
+                if local_tag == "SupportedAppProtocolRes":
+                    print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
+                    self.supported_app_response_received.set()
+                    return
+                elif local_tag == "SessionSetupRes":
+                    print("INFO (TCPHandler): Received SessionSetupResponse")
+                    self.session_setup_response_received.set()
+                    return
                 else:
-                    # Handle other messages if necessary
-                    pass
+                    print(f"INFO (TCPHandler): Received unknown message: {local_tag}")
             except Exception as e:
                 print(f"ERROR (TCPHandler): Failed to decode or parse EXI payload: {e}")
                 return
