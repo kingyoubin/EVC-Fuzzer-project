@@ -747,6 +747,13 @@ class _TCPHandler:
             if not found_element:
                 print(f"ERROR: Element '{element_name}' not found in the XML.")
                 continue
+                
+        print("Fuzzing completed for all elements.")
+        # Remove state file if exists
+        if os.path.exists(self.state_file):
+            os.remove(self.state_file)
+        # Generate summary report
+        self.generate_report()
 
 
     def generate_report(self):
