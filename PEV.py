@@ -469,7 +469,10 @@ class _TCPHandler:
             try:
                 exi_payload_bytes = binascii.unhexlify(exi_payload)
                 packet = self.buildV2G(exi_payload_bytes)
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(bytes(packet[TCP].payload))
                 sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number by actual TCP payload size
                 print("INFO (TCPHandler): SessionSetupRequest sent successfully")
             except binascii.Error as e:
                 print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
