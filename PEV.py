@@ -435,11 +435,6 @@ class _TCPHandler:
         )
         self.neighborSolicitationThread.start()
 
-        # Removed the separate protocol_request_thread
-        # self.protocol_request_thread = Thread(target=self.send_supported_app_protocol_request)
-        # self.protocol_request_thread.start()
-
-        # Start the fuzzing control thread
         self.fuzzing_control_thread = Thread(target=self.wait_and_start_fuzzing)
         self.fuzzing_control_thread.start()
 
