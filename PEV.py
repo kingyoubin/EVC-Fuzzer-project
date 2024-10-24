@@ -915,7 +915,7 @@ class _TCPHandler:
             root = ET.fromstring(xml_string)
 
             # Find the element using the path
-            elem = find_element_by_path(root, element_path)
+            elem = self.find_element_by_path(root, element_path)
             if elem is None:
                 print(f"ERROR: Element '{element_path}' not found in the XML.")
                 continue
