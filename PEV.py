@@ -976,6 +976,7 @@ class _TCPHandler:
                         # Calculate the actual TCP payload length
                         tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
                         sendp(packet, iface=self.iface, verbose=0)
+                        time.sleep(0.2)
                         self.seq += tcp_payload_length  # Increment sequence number
                     except binascii.Error as e:
                         print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
