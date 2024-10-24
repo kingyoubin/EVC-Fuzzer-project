@@ -400,7 +400,7 @@ class _TCPHandler:
         self.iterations_per_element = iterations_per_element
         self.state_file = 'fuzzing_state.json'
         self.state = {}
-        self.elements_to_modify = ["ServiceCategory"]
+        self.elements_to_modify = ["SelectedPaymentOption", "ServiceID"]
         
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -411,6 +411,7 @@ class _TCPHandler:
         # Event to signal when fuzzing can start
         self.supported_app_response_received = Event()
         self.session_setup_response_received = Event()
+        self.service_discovery_response_received = Event()
 
     def start(self):
         self.msgList = {}
@@ -493,6 +494,32 @@ class _TCPHandler:
                 print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
         else:
             print("ERROR (TCPHandler): EXI encoding failed for SessionSetupRequest")
+        
+    def send_service_discovery_request(self):
+        print("INFO (TCPHandler): Sending ServiceDiscoveryRequest")
+        handler = PacketHandler()
+        handler.ServiceDiscoveryRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
+                print("INFO (TCPHandler): ServiceDiscoveryRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for ServiceDiscoveryRequest")
 
 
     def wait_and_start_fuzzing(self):
@@ -512,13 +539,20 @@ class _TCPHandler:
             # Wait for SessionSetupResponse
             print("INFO (TCPHandler): Waiting for SessionSetupResponse...")
             if self.session_setup_response_received.wait(timeout=15):
-                print("INFO (TCPHandler): Received SessionSetupResponse, starting fuzzing.")
-                self.send_fuzzing_messages()
+                print("INFO (TCPHandler): Received SessionSetupResponse")
+                # Now send ServiceDiscoveryRequest
+                self.send_service_discovery_request()
+                # Wait for ServiceDiscoveryResponse
+                print("INFO (TCPHandler): Waiting for ServiceDiscoveryResponse...")
+                if self.service_discovery_response_received.wait(timeout=15):
+                    print("INFO (TCPHandler): Received ServiceDiscoveryResponse, starting fuzzing.")
+                    self.send_fuzzing_messages()
+                else:
+                    print("WARNING (TCPHandler): ServiceDiscoveryResponse not received within timeout, not starting fuzzing.")
             else:
-                print("WARNING (TCPHandler): SessionSetupResponse not received within timeout, not starting fuzzing.")
+                print("WARNING (TCPHandler): SessionSetupResponse not received within timeout, not proceeding.")
         else:
             print("WARNING (TCPHandler): SupportedAppProtocolResponse not received within timeout, not proceeding.")
-
 
     def killThreads(self):
         print("INFO (PEV) : Killing sniffing threads")
@@ -592,7 +626,7 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.ServiceDiscoveryRequest()
+        handler.ServicePaymentSelectionRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
 
         # Load fuzzing state
@@ -665,6 +699,10 @@ class _TCPHandler:
                         if message_tag == "SessionSetupRes":
                             print("INFO (TCPHandler): Received SessionSetupResponse")
                             self.session_setup_response_received.set()
+                            return
+                        elif message_tag == "ServiceDiscoveryRes":
+                            print("INFO (TCPHandler): Received ServiceDiscoveryResponse")
+                            self.service_discovery_response_received.set()
                             return
                         else:
                             print(f"INFO (TCPHandler): Received unknown message inside V2G_Message: {message_tag}")
