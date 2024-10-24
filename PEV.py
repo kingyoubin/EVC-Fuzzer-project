@@ -401,16 +401,7 @@ class _TCPHandler:
         self.iterations_per_element = iterations_per_element
         self.state_file = 'fuzzing_state.json'
         self.state = {}
-        self.elements_to_modify = [
-            "EVRequestedEnergyTransferType",
-            "EVReady",
-            "EVErrorCode",
-            "EVRESSSOC",
-            "Multiplier",  # For CurrentLimitMultiplier, PowerLimitMultiplier, VoltageLimitMultiplier
-            "Unit",        # For CurrentLimitUnit, PowerLimitUnit, VoltageLimitUnit
-            "Value"        # For CurrentLimitValue, PowerLimitValue, VoltageLimitValue
-        ]
-        
+        self.elements_to_modify = ["EVReady", "EVErrorCode", "EVRESSSOC"]
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
         self.total_attempts = 0
@@ -421,8 +412,9 @@ class _TCPHandler:
         self.supported_app_response_received = Event()
         self.session_setup_response_received = Event()
         self.service_discovery_response_received = Event()
-        self.service_payment_selection_response_received = Event()  # New event
-        self.contract_authentication_response_received = Event()     # New event
+        self.service_payment_selection_response_received = Event()  
+        self.contract_authentication_response_received = Event()     
+        self.charge_parameter_discovery_response_received = Event()
 
     def start(self):
         self.msgList = {}
@@ -584,8 +576,31 @@ class _TCPHandler:
         else:
             print("ERROR (TCPHandler): EXI encoding failed for ContractAuthenticationRequest")
 
-    
-
+    def send_charge_parameter_discovery_request(self):
+        print("INFO (TCPHandler): Sending ChargeParameterDiscoveryRequest")
+        handler = PacketHandler()
+        handler.ChargeParameterDiscoveryRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
+                print("INFO (TCPHandler): ChargeParameterDiscoveryRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for ChargeParameterDiscoveryRequest")
 
     def wait_and_start_fuzzing(self):
         # Wait for handshake to complete
@@ -622,10 +637,19 @@ class _TCPHandler:
                         # Wait for ContractAuthenticationResponse
                         print("INFO (TCPHandler): Waiting for ContractAuthenticationResponse...")
                         if self.contract_authentication_response_received.wait(timeout=15):
-                            print("INFO (TCPHandler): Received ContractAuthenticationResponse, starting fuzzing.")
-                            self.send_fuzzing_messages()
+                            print("INFO (TCPHandler): Received ContractAuthenticationResponse")
+                            # Now send ChargeParameterDiscoveryRequest
+                            self.send_charge_parameter_discovery_request()
+                            # Wait for ChargeParameterDiscoveryResponse
+                            print("INFO (TCPHandler): Waiting for ChargeParameterDiscoveryResponse...")
+                            if self.charge_parameter_discovery_response_received.wait(timeout=15):
+                                print("INFO (TCPHandler): Received ChargeParameterDiscoveryResponse, starting fuzzing.")
+                                # Now send CableCheckRequest and start fuzzing
+                                self.send_fuzzing_messages()
+                            else:
+                                print("WARNING (TCPHandler): ChargeParameterDiscoveryResponse not received within timeout, not starting fuzzing.")
                         else:
-                            print("WARNING (TCPHandler): ContractAuthenticationResponse not received within timeout, not starting fuzzing.")
+                            print("WARNING (TCPHandler): ContractAuthenticationResponse not received within timeout, not proceeding.")
                     else:
                         print("WARNING (TCPHandler): ServicePaymentSelectionResponse not received within timeout, not proceeding.")
                 else:
@@ -634,7 +658,6 @@ class _TCPHandler:
                 print("WARNING (TCPHandler): SessionSetupResponse not received within timeout, not proceeding.")
         else:
             print("WARNING (TCPHandler): SupportedAppProtocolResponse not received within timeout, not proceeding.")
-
 
     def killThreads(self):
         print("INFO (PEV) : Killing sniffing threads")
@@ -708,7 +731,7 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.ChargeParameterDiscoveryRequest()
+        handler.CableCheckRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
 
         # Load fuzzing state
@@ -793,6 +816,10 @@ class _TCPHandler:
                         elif message_tag == "ContractAuthenticationRes":
                             print("INFO (TCPHandler): Received ContractAuthenticationResponse")
                             self.contract_authentication_response_received.set()
+                            return
+                        elif message_tag == "ChargeParameterDiscoveryRes":
+                            print("INFO (TCPHandler): Received ChargeParameterDiscoveryResponse")
+                            self.charge_parameter_discovery_response_received.set()
                             return
                         else:
                             print(f"INFO (TCPHandler): Received unknown message inside V2G_Message: {message_tag}")
