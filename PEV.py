@@ -402,12 +402,15 @@ class _TCPHandler:
         self.state_file = 'fuzzing_state.json'
         self.state = {}
         self.elements_to_modify = [
-            "EVReady",
-            "EVErrorCode",
-            "EVRESSSOC",
-            "Multiplier",  # For TargetVoltageMultiplier, TargetCurrentMultiplier
-            "Unit",        # For TargetVoltageUnit, TargetCurrentUnit
-            "Value"        # For TargetVoltageValue, TargetCurrentValue
+            "DC_EVStatus/EVReady",
+            "DC_EVStatus/EVErrorCode",
+            "DC_EVStatus/EVRESSSOC",
+            "EVTargetVoltage/Multiplier",
+            "EVTargetVoltage/Unit",
+            "EVTargetVoltage/Value",
+            "EVTargetCurrent/Multiplier",
+            "EVTargetCurrent/Unit",
+            "EVTargetCurrent/Value"
         ]
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -714,6 +717,22 @@ class _TCPHandler:
             else:
                 # Schedule stopping the thread after it returns
                 threading.Thread(target=self.recvThread.stop).start()
+    
+    def find_element_by_path(root, path):
+        elements = path.split('/')
+        current_element = root
+        for elem_name in elements:
+            found = False
+            for child in current_element:
+                # Get the local tag name without namespace
+                local_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                if local_tag == elem_name:
+                    current_element = child
+                    found = True
+                    break
+            if not found:
+                return None
+        return current_element
 
     def fin(self):
         print("INFO (PEV): Received FIN")
@@ -891,127 +910,117 @@ class _TCPHandler:
         total_crashes = self.state.get('total_crashes', 0)
 
         for idx in range(current_element_index, len(elements_to_modify)):
-            element_name = elements_to_modify[idx]
+            element_path = elements_to_modify[idx]
             # Parse XML
             root = ET.fromstring(xml_string)
 
-            # Find all elements with the tag
-            found_elements = []
-            for elem in root.iter():
-                # Extract local tag name without namespace
-                local_tag = elem.tag.split('}')[-1] if '}' in elem.tag else elem.tag
-                if local_tag == element_name:
-                    found_elements.append(elem)
-
-            if not found_elements:
-                print(f"ERROR: Element '{element_name}' not found in the XML.")
+            # Find the element using the path
+            elem = find_element_by_path(root, element_path)
+            if elem is None:
+                print(f"ERROR: Element '{element_path}' not found in the XML.")
                 continue
 
-            # Process each found element
-            for elem_index, elem in enumerate(found_elements):
-                # Assign default value if empty
-                if not elem.text:
-                    elem.text = "1"  # Assign default value "1"
+            # Assign default value if empty
+            if not elem.text:
+                elem.text = "1"  # Assign default value "1"
 
-                mutated_value = elem.text  # Initial value
+            mutated_value = elem.text  # Initial value
 
-                key = f"{element_name}_{elem_index}"
-                start_iteration = iteration_count.get(key, 0)
+            start_iteration = iteration_count.get(element_path, 0)
 
-                for iteration in range(start_iteration, self.iterations_per_element):
-                    # Randomly select one of the four mutation functions
-                    mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                    mutated_value = mutation_func(mutated_value)  # Perform the randomly selected mutation
+            for iteration in range(start_iteration, self.iterations_per_element):
+                # Randomly select one of the four mutation functions
+                mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
+                mutated_value = mutation_func(mutated_value)  # Perform the randomly selected mutation
 
-                    # If mutated value is empty, revert to previous value
-                    if not mutated_value:
-                        print(f"Mutated value became empty, reverting to previous value: {elem.text}")
-                        mutated_value = elem.text  # Restore previous value
+                # If mutated value is empty, revert to previous value
+                if not mutated_value:
+                    print(f"Mutated value became empty, reverting to previous value: {elem.text}")
+                    mutated_value = elem.text  # Restore previous value
 
-                    elem.text = mutated_value
+                elem.text = mutated_value
 
-                    # Serialize mutated XML
-                    fuzzed_xml = ET.tostring(root, encoding='unicode')
+                # Serialize mutated XML
+                fuzzed_xml = ET.tostring(root, encoding='unicode')
 
-                    # Debugging messages
-                    print(f"\n{'=' * 40}")
-                    print(f"[{element_name} #{elem_index}] Iteration {iteration+1}: Mutated using {mutation_func.__name__}")
-                    print(f"Mutated value: {mutated_value}")
-                    print(f"Fuzzed XML:\n{fuzzed_xml}")
-                    print(f"{'=' * 40}\n")
+                # Debugging messages
+                print(f"\n{'=' * 40}")
+                print(f"[{element_path}] Iteration {iteration+1}: Mutated using {mutation_func.__name__}")
+                print(f"Mutated value: {mutated_value}")
+                print(f"Fuzzed XML:\n{fuzzed_xml}")
+                print(f"{'=' * 40}\n")
 
-                    # Increment total attempts
-                    with self.state_lock:
-                        self.state['total_attempts'] = total_attempts + 1
-                        total_attempts += 1
+                # Increment total attempts
+                with self.state_lock:
+                    self.state['total_attempts'] = total_attempts + 1
+                    total_attempts += 1
 
-                    # Clear response_received event before sending
-                    self.response_received.clear()
-                    self.rst_received = False
+                # Clear response_received event before sending
+                self.response_received.clear()
+                self.rst_received = False
 
-                    # EXI encoding and sending
-                    exi_payload = self.exi.encode(fuzzed_xml)
-                    if exi_payload is not None:
-                        try:
-                            exi_payload_bytes = binascii.unhexlify(exi_payload)
-                            packet = self.buildV2G(exi_payload_bytes)
-                            # Set seq and ack
-                            packet[TCP].seq = self.seq
-                            packet[TCP].ack = self.ack
-                            # Recalculate checksums
-                            del packet[TCP].chksum
-                            del packet[IPv6].plen
-                            # Calculate the actual TCP payload length
-                            tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
-                            sendp(packet, iface=self.iface, verbose=0)
-                            self.seq += tcp_payload_length  # Increment sequence number
-                        except binascii.Error as e:
-                            print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
-                            continue
-                    else:
-                        print("ERROR (TCPHandler): EXI encoding failed for fuzzed XML")
+                # EXI encoding and sending
+                exi_payload = self.exi.encode(fuzzed_xml)
+                if exi_payload is not None:
+                    try:
+                        exi_payload_bytes = binascii.unhexlify(exi_payload)
+                        packet = self.buildV2G(exi_payload_bytes)
+                        # Set seq and ack
+                        packet[TCP].seq = self.seq
+                        packet[TCP].ack = self.ack
+                        # Recalculate checksums
+                        del packet[TCP].chksum
+                        del packet[IPv6].plen
+                        # Calculate the actual TCP payload length
+                        tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
+                        sendp(packet, iface=self.iface, verbose=0)
+                        self.seq += tcp_payload_length  # Increment sequence number
+                    except binascii.Error as e:
+                        print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
                         continue
+                else:
+                    print("ERROR (TCPHandler): EXI encoding failed for fuzzed XML")
+                    continue
 
-                    # Update iteration count
+                # Update iteration count
+                with self.state_lock:
+                    self.state['iterations'][element_path] = iteration + 1
+
+                # Save state
+                self.save_state()
+
+                # Wait for response
+                response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
+
+                if not response or self.rst_received:
+                    # No response received or RST received
+                    print("No response received or RST received, recording crash.")
+                    # Increment crash count
                     with self.state_lock:
-                        self.state['iterations'][key] = iteration + 1
+                        self.state['total_crashes'] = total_crashes + 1
+                        total_crashes += 1
+
+                        # Record the crashing input
+                        crash_detail = {
+                            'element': element_path,
+                            'iteration': iteration + 1,
+                            'mutated_value': mutated_value,
+                            'fuzzed_xml': fuzzed_xml
+                        }
+                        if 'crash_inputs' not in self.state:
+                            self.state['crash_inputs'] = []
+                        self.state['crash_inputs'].append(crash_detail)
 
                     # Save state
                     self.save_state()
+                    self.killThreads()
+                    return
 
-                    # Wait for response
-                    response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
+                # Proceed to next iteration
 
-                    if not response or self.rst_received:
-                        # No response received or RST received
-                        print("No response received or RST received, recording crash.")
-                        # Increment crash count
-                        with self.state_lock:
-                            self.state['total_crashes'] = total_crashes + 1
-                            total_crashes += 1
-
-                            # Record the crashing input
-                            crash_detail = {
-                                'element': element_name,
-                                'element_index': elem_index,
-                                'iteration': iteration + 1,
-                                'mutated_value': mutated_value,
-                                'fuzzed_xml': fuzzed_xml
-                            }
-                            if 'crash_inputs' not in self.state:
-                                self.state['crash_inputs'] = []
-                            self.state['crash_inputs'].append(crash_detail)
-
-                        # Save state
-                        self.save_state()
-                        self.killThreads()
-                        return
-
-                    # Proceed to next iteration
-
-                # Reset iteration count for this element
-                with self.state_lock:
-                    self.state['iterations'][key] = 0
+            # Reset iteration count for this element
+            with self.state_lock:
+                self.state['iterations'][element_path] = 0
 
             # Move to next element
             with self.state_lock:
@@ -1023,6 +1032,7 @@ class _TCPHandler:
             os.remove(self.state_file)
         # Generate summary report
         self.generate_report()
+
 
 
     def generate_report(self):
@@ -1160,8 +1170,8 @@ class _TCPHandler:
                 'total_crashes': 0,
                 'crash_inputs': []
             }
-            for element in self.elements_to_modify:
-                self.state['iterations'][element] = 0
+            for element_path in self.elements_to_modify:
+                self.state['iterations'][element_path] = 0
 
     def save_state(self):
         with self.state_lock:
