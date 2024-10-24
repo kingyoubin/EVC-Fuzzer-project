@@ -402,15 +402,15 @@ class _TCPHandler:
         self.state_file = 'fuzzing_state.json'
         self.state = {}
         self.elements_to_modify = [
-            "DC_EVStatus/EVReady",
-            "DC_EVStatus/EVErrorCode",
-            "DC_EVStatus/EVRESSSOC",
-            "EVTargetVoltage/Multiplier",
-            "EVTargetVoltage/Unit",
-            "EVTargetVoltage/Value",
-            "EVTargetCurrent/Multiplier",
-            "EVTargetCurrent/Unit",
-            "EVTargetCurrent/Value"
+            "Body/PreChargeReq/DC_EVStatus/EVReady",
+            "Body/PreChargeReq/DC_EVStatus/EVErrorCode",
+            "Body/PreChargeReq/DC_EVStatus/EVRESSSOC",
+            "Body/PreChargeReq/EVTargetVoltage/Multiplier",
+            "Body/PreChargeReq/EVTargetVoltage/Unit",
+            "Body/PreChargeReq/EVTargetVoltage/Value",
+            "Body/PreChargeReq/EVTargetCurrent/Multiplier",
+            "Body/PreChargeReq/EVTargetCurrent/Unit",
+            "Body/PreChargeReq/EVTargetCurrent/Value"
         ]
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -723,14 +723,16 @@ class _TCPHandler:
         current_element = root
         for elem_name in elements:
             found = False
+            print(f"Looking for element '{elem_name}' in:")
             for child in current_element:
-                # Get the local tag name without namespace
                 local_tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                print(f" - {local_tag}")
                 if local_tag == elem_name:
                     current_element = child
                     found = True
                     break
             if not found:
+                print(f"Element '{elem_name}' not found.")
                 return None
         return current_element
 
