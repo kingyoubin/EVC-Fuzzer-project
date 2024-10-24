@@ -718,7 +718,7 @@ class _TCPHandler:
                 # Schedule stopping the thread after it returns
                 threading.Thread(target=self.recvThread.stop).start()
     
-    def find_element_by_path(root, path):
+    def find_element_by_path(self, root, path):
         elements = path.split('/')
         current_element = root
         for elem_name in elements:
