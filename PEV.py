@@ -400,7 +400,15 @@ class _TCPHandler:
         self.iterations_per_element = iterations_per_element
         self.state_file = 'fuzzing_state.json'
         self.state = {}
-        self.elements_to_modify = ["SelectedPaymentOption", "ServiceID"]
+        self.elements_to_modify = [
+            "EVRequestedEnergyTransferType",
+            "EVReady",
+            "EVErrorCode",
+            "EVRESSSOC",
+            "Multiplier",  # For CurrentLimitMultiplier, PowerLimitMultiplier, VoltageLimitMultiplier
+            "Unit",        # For CurrentLimitUnit, PowerLimitUnit, VoltageLimitUnit
+            "Value"        # For CurrentLimitValue, PowerLimitValue, VoltageLimitValue
+        ]
         
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -412,6 +420,8 @@ class _TCPHandler:
         self.supported_app_response_received = Event()
         self.session_setup_response_received = Event()
         self.service_discovery_response_received = Event()
+        self.service_payment_selection_response_received = Event()  # New event
+        self.contract_authentication_response_received = Event()     # New event
 
     def start(self):
         self.msgList = {}
@@ -521,6 +531,60 @@ class _TCPHandler:
         else:
             print("ERROR (TCPHandler): EXI encoding failed for ServiceDiscoveryRequest")
 
+    def send_service_payment_selection_request(self):
+        print("INFO (TCPHandler): Sending ServicePaymentSelectionRequest")
+        handler = PacketHandler()
+        handler.ServicePaymentSelectionRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
+                print("INFO (TCPHandler): ServicePaymentSelectionRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for ServicePaymentSelectionRequest")
+
+    def send_contract_authentication_request(self):
+        print("INFO (TCPHandler): Sending ContractAuthenticationRequest")
+        handler = PacketHandler()
+        handler.ContractAuthenticationRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
+                print("INFO (TCPHandler): ContractAuthenticationRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for ContractAuthenticationRequest")
+
+    
+
 
     def wait_and_start_fuzzing(self):
         # Wait for handshake to complete
@@ -545,14 +609,31 @@ class _TCPHandler:
                 # Wait for ServiceDiscoveryResponse
                 print("INFO (TCPHandler): Waiting for ServiceDiscoveryResponse...")
                 if self.service_discovery_response_received.wait(timeout=15):
-                    print("INFO (TCPHandler): Received ServiceDiscoveryResponse, starting fuzzing.")
-                    self.send_fuzzing_messages()
+                    print("INFO (TCPHandler): Received ServiceDiscoveryResponse")
+                    # Now send ServicePaymentSelectionRequest
+                    self.send_service_payment_selection_request()
+                    # Wait for ServicePaymentSelectionResponse
+                    print("INFO (TCPHandler): Waiting for ServicePaymentSelectionResponse...")
+                    if self.service_payment_selection_response_received.wait(timeout=15):
+                        print("INFO (TCPHandler): Received ServicePaymentSelectionResponse")
+                        # Now send ContractAuthenticationRequest
+                        self.send_contract_authentication_request()
+                        # Wait for ContractAuthenticationResponse
+                        print("INFO (TCPHandler): Waiting for ContractAuthenticationResponse...")
+                        if self.contract_authentication_response_received.wait(timeout=15):
+                            print("INFO (TCPHandler): Received ContractAuthenticationResponse, starting fuzzing.")
+                            self.send_fuzzing_messages()
+                        else:
+                            print("WARNING (TCPHandler): ContractAuthenticationResponse not received within timeout, not starting fuzzing.")
+                    else:
+                        print("WARNING (TCPHandler): ServicePaymentSelectionResponse not received within timeout, not proceeding.")
                 else:
-                    print("WARNING (TCPHandler): ServiceDiscoveryResponse not received within timeout, not starting fuzzing.")
+                    print("WARNING (TCPHandler): ServiceDiscoveryResponse not received within timeout, not proceeding.")
             else:
                 print("WARNING (TCPHandler): SessionSetupResponse not received within timeout, not proceeding.")
         else:
             print("WARNING (TCPHandler): SupportedAppProtocolResponse not received within timeout, not proceeding.")
+
 
     def killThreads(self):
         print("INFO (PEV) : Killing sniffing threads")
@@ -626,7 +707,7 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.ServicePaymentSelectionRequest()
+        handler.ChargeParameterDiscoveryRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
 
         # Load fuzzing state
@@ -703,6 +784,14 @@ class _TCPHandler:
                         elif message_tag == "ServiceDiscoveryRes":
                             print("INFO (TCPHandler): Received ServiceDiscoveryResponse")
                             self.service_discovery_response_received.set()
+                            return
+                        elif message_tag == "ServicePaymentSelectionRes":
+                            print("INFO (TCPHandler): Received ServicePaymentSelectionResponse")
+                            self.service_payment_selection_response_received.set()
+                            return
+                        elif message_tag == "ContractAuthenticationRes":
+                            print("INFO (TCPHandler): Received ContractAuthenticationResponse")
+                            self.contract_authentication_response_received.set()
                             return
                         else:
                             print(f"INFO (TCPHandler): Received unknown message inside V2G_Message: {message_tag}")
