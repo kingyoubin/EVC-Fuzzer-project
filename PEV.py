@@ -426,6 +426,7 @@ class _TCPHandler:
         self.contract_authentication_response_received = Event()     
         self.charge_parameter_discovery_response_received = Event()
         self.cable_check_response_received = Event()
+        self.pre_charge_response_received = Event()
 
     def start(self):
         self.msgList = {}
@@ -639,6 +640,32 @@ class _TCPHandler:
         else:
             print("ERROR (TCPHandler): EXI encoding failed for CableCheckRequest")
 
+    def send_pre_charge_request(self):
+        print("INFO (TCPHandler): Sending PreChargeRequest")
+        handler = PacketHandler()
+        handler.PreChargeRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8  # V2GTP header is 8 bytes
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
+                print("INFO (TCPHandler): PreChargeRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for PreChargeRequest")
+
     def wait_and_start_fuzzing(self):
         # Wait for handshake to complete
         self.handshake_complete.wait()
@@ -686,11 +713,19 @@ class _TCPHandler:
                                 # Wait for CableCheckResponse
                                 print("INFO (TCPHandler): Waiting for CableCheckResponse...")
                                 if self.cable_check_response_received.wait(timeout=15):
-                                    print("INFO (TCPHandler): Received CableCheckResponse, starting fuzzing.")
-                                    # Now send PreChargeRequest and start fuzzing
-                                    self.send_fuzzing_messages()
+                                    print("INFO (TCPHandler): Received CableCheckResponse")
+                                    # Now send PreChargeRequest
+                                    self.send_pre_charge_request()
+                                    # Wait for PreChargeResponse
+                                    print("INFO (TCPHandler): Waiting for PreChargeResponse...")
+                                    if self.pre_charge_response_received.wait(timeout=15):
+                                        print("INFO (TCPHandler): Received PreChargeResponse, starting fuzzing.")
+                                        # Now send PowerDeliveryRequest and start fuzzing
+                                        self.send_fuzzing_messages()
+                                    else:
+                                        print("WARNING (TCPHandler): PreChargeResponse not received within timeout, not starting fuzzing.")
                                 else:
-                                    print("WARNING (TCPHandler): CableCheckResponse not received within timeout, not starting fuzzing.")
+                                    print("WARNING (TCPHandler): CableCheckResponse not received within timeout, not proceeding.")
                             else:
                                 print("WARNING (TCPHandler): ChargeParameterDiscoveryResponse not received within timeout, not proceeding.")
                         else:
@@ -887,6 +922,10 @@ class _TCPHandler:
                         elif message_tag == "CableCheckRes":
                             print("INFO (TCPHandler): Received CableCheckResponse")
                             self.cable_check_response_received.set()
+                            return
+                        elif message_tag == "PreChargeRes":
+                            print("INFO (TCPHandler): Received PreChargeResponse")
+                            self.pre_charge_response_received.set()
                             return
                         else:
                             print(f"INFO (TCPHandler): Received unknown message inside V2G_Message: {message_tag}")
