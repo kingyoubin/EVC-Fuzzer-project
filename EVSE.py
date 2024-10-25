@@ -1,7 +1,7 @@
 """
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
 
-    This class is used to emulate a EVSE when talking to an PEV. Handles level 2 SLAC communications
+    This class is used to emulate a EVSE when talking to a PEV. Handles level 2 SLAC communications
     and level 3 UDP and TCP communications to the electric vehicle.
 """
 
@@ -13,6 +13,21 @@ import argparse
 import xml.etree.ElementTree as ET
 import binascii
 from threading import Thread
+
+# Add custom library paths
+sys.path.append("./external_libs/HomePlugPWN")
+sys.path.append("./external_libs/V2GInjector/core")
+
+# Import custom layers and modules
+from layers.SECC import *
+from layers.V2G import *
+from layerscapy.HomePlugGP import *
+from XMLBuilder import XMLBuilder
+from EXIProcessor import EXIProcessor
+from EmulatorEnum import *
+from NMAPScanner import NMAPScanner
+
+# Import Scapy components
 from scapy.all import (
     sendp,
     sniff,
@@ -25,27 +40,7 @@ from scapy.all import (
     ICMPv6ND_NA,
     ICMPv6NDOptDstLLAddr,
     ICMPv6ND_NS,
-    HomePlugAV,
-    CM_SLAC_PARM_CNF,
-    CM_ATTEN_CHAR_IND,
-    HPGP_GROUP,
-    CM_SLAC_MATCH_CNF,
-    CM_SET_KEY_REQ,
-    SECC,
-    SECC_ResponseMessage,
-    V2GTP,
 )
-from layers.SECC import *
-from layers.V2G import *
-from layerscapy.HomePlugGP import *
-from XMLBuilder import XMLBuilder
-from EXIProcessor import EXIProcessor
-from EmulatorEnum import *
-from NMAPScanner import NMAPScanner
-
-sys.path.append("./external_libs/HomePlugPWN")
-sys.path.append("./external_libs/V2GInjector/core")
-
 
 class EVSE:
     def __init__(self, args):
@@ -97,7 +92,7 @@ class EVSE:
 
     # Start the emulator
     def start(self):
-        # Initialize the I2C bus for wwrite
+        # Initialize the I2C bus for write
         # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
@@ -180,9 +175,9 @@ class _SLACHandler:
 
     def stopSniff(self, pkt):
         if pkt.haslayer("SECC_RequestMessage"):
-            print("INDO (EVSE): Recieved SECC_RequestMessage")
+            print("INFO (EVSE): Received SECC_RequestMessage")
             # self.evse.destinationMAC = pkt[Ether].src
-            # use this to send 3 secc responses incase car doesnt see one
+            # use this to send 3 secc responses in case car doesn't see one
             self.destinationIP = pkt[IPv6].src
             self.destinationPort = pkt[UDP].sport
             Thread(target=self.sendSECCResponse).start()
@@ -202,19 +197,19 @@ class _SLACHandler:
         self.lastMessageTime = time.time()
 
         if pkt.haslayer("CM_SLAC_PARM_REQ"):
-            print("INFO (EVSE): Recieved SLAC_PARM_REQ")
+            print("INFO (EVSE): Received SLAC_PARM_REQ")
             self.destinationMAC = pkt[Ether].src
             self.runID = pkt[CM_SLAC_PARM_REQ].RunID
             print("INFO (EVSE): Sending CM_SLAC_PARM_CNF")
             sendp(self.buildSlacParmCnf(), iface=self.iface, verbose=0)
 
         if pkt.haslayer("CM_MNBC_SOUND_IND") and pkt[CM_MNBC_SOUND_IND].Countdown == 0:
-            print("INFO (EVSE): Recieved last MNBC_SOUND_IND")
+            print("INFO (EVSE): Received last MNBC_SOUND_IND")
             print("INFO (EVSE): Sending ATTEN_CHAR_IND")
             sendp(self.buildAttenCharInd(), iface=self.iface, verbose=0)
 
         if pkt.haslayer("CM_SLAC_MATCH_REQ"):
-            print("INFO (EVSE): Recieved SLAC_MATCH_REQ")
+            print("INFO (EVSE): Received SLAC_MATCH_REQ")
             print("INFO (EVSE): Sending SLAC_MATCH_CNF")
             sendp(self.buildSlacMatchCnf(), iface=self.iface, verbose=0)
 
@@ -254,7 +249,7 @@ class _SLACHandler:
         homePlugLayer = CM_ATTEN_CHAR_IND()
         homePlugLayer.ApplicationType = 0x00
         homePlugLayer.SecurityType = 0x00
-        homePlugLayer.SourceAdress = self.destinationMAC
+        homePlugLayer.SourceAddress = self.destinationMAC
         homePlugLayer.RunID = self.runID
         homePlugLayer.NumberOfSounds = 0x0A
         # TODO: deal with number of groups and average attenuations
@@ -457,7 +452,7 @@ class _TCPHandler:
             iface=self.iface,
             lfilter=lambda x: x.haslayer("ICMPv6ND_NS")
             and x[ICMPv6ND_NS].tgt == self.sourceIP,
-            prn=self.sendNeighborSoliciation,
+            prn=self.sendNeighborSolicitation,
         )
         self.neighborSolicitationThread.start()
 
@@ -495,7 +490,7 @@ class _TCPHandler:
         )
 
     def fin(self):
-        print("INFO (EVSE): Recieved FIN")
+        print("INFO (EVSE): Received FIN")
         self.running = False
         self.ack = self.ack + 1
 
@@ -543,10 +538,10 @@ class _TCPHandler:
         self.seq = self.last_recv[TCP].ack
         self.ack = self.last_recv[TCP].seq + len(self.last_recv[TCP].payload)
 
-        if "F" in self.last_recv.flags:
+        if "F" in self.last_recv[TCP].flags:
             self.fin()
             return
-        if "P" not in self.last_recv.flags:
+        if "P" not in self.last_recv[TCP].flags:
             return
 
         self.lastMessageTime = time.time()
@@ -559,7 +554,7 @@ class _TCPHandler:
             exi = self.msgList[payload]
         else:
             exi = self.getEXIFromPayload(payload)
-            if exi == None:
+            if exi is None:
                 return
             self.msgList[payload] = exi
 
@@ -613,7 +608,7 @@ class _TCPHandler:
                 elif self.evse.mode == RunMode.SCAN:
                     self.xml.EVSEProcessing.text = "Ongoing"
                     # Start nmap scan while connection is kept alive
-                    if self.scanner == None:
+                    if self.scanner is None:
                         nmapMAC = self.evse.nmapMAC if self.evse.nmapMAC else self.destinationMAC
                         nmapIP = self.evse.nmapIP if self.evse.nmapIP else self.destinationIP
                         self.scanner = NMAPScanner(
@@ -653,14 +648,14 @@ class _TCPHandler:
             return self.xml.getEXI()
 
     def startNeighborSolicitationSniff(self):
-        sniff(iface=self.iface, prn=self.sendNeighborSoliciation)
+        sniff(iface=self.iface, prn=self.sendNeighborSolicitation)
 
-    def sendNeighborSoliciation(self, pkt):
+    def sendNeighborSolicitation(self, pkt):
         # if self.stop: exit()
         # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
         self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
-        # print("INFO (EVSE): Sending Neighor Advertisement")
+        # print("INFO (EVSE): Sending Neighbor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
 
     def handshake(self, syn):
@@ -728,7 +723,7 @@ if __name__ == "__main__":
         "-I",
         "--interface",
         nargs=1,
-        help="Ethernet interface to send/recieve packets on (default: eth1)",
+        help="Ethernet interface to send/receive packets on (default: eth1)",
     )
     parser.add_argument(
         "--source-mac",
@@ -775,7 +770,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--nmap-ports",
         nargs=1,
-        help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)",
+        help="List of ports to scan separated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)",
     )
     parser.add_argument(
         "--modified-cordset",
