@@ -1,18 +1,40 @@
 """
     Copyright 2023, Battelle Energy Alliance, LLC, ALL RIGHTS RESERVED
-    
+
     This class is used to emulate a EVSE when talking to an PEV. Handles level 2 SLAC communications
     and level 3 UDP and TCP communications to the electric vehicle.
 """
 
 # need to do this to import the custom SECC and V2G scapy layer
-import sys, os
-
-sys.path.append("./external_libs/HomePlugPWN")
-sys.path.append("./external_libs/V2GInjector/core")
-
+import sys
+import os
+import time
+import argparse
+import xml.etree.ElementTree as ET
+import binascii
 from threading import Thread
-
+from scapy.all import (
+    sendp,
+    sniff,
+    Ether,
+    AsyncSniffer,
+    Raw,
+    IPv6,
+    UDP,
+    TCP,
+    ICMPv6ND_NA,
+    ICMPv6NDOptDstLLAddr,
+    ICMPv6ND_NS,
+    HomePlugAV,
+    CM_SLAC_PARM_CNF,
+    CM_ATTEN_CHAR_IND,
+    HPGP_GROUP,
+    CM_SLAC_MATCH_CNF,
+    CM_SET_KEY_REQ,
+    SECC,
+    SECC_ResponseMessage,
+    V2GTP,
+)
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
@@ -20,14 +42,12 @@ from XMLBuilder import XMLBuilder
 from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
-import xml.etree.ElementTree as ET
-import binascii
-# from smbus import SMBus
-import argparse
+
+sys.path.append("./external_libs/HomePlugPWN")
+sys.path.append("./external_libs/V2GInjector/core")
 
 
 class EVSE:
-
     def __init__(self, args):
         self.mode = RunMode(args.mode[0]) if args.mode else RunMode.FULL
         self.iface = args.interface[0] if args.interface else "eth1"
@@ -35,16 +55,20 @@ class EVSE:
         self.sourceIP = args.source_ip[0] if args.source_ip else "fe80::21e:c0ff:fef2:6ca0"
         self.sourcePort = args.source_port[0] if args.source_port else 25565
         self.NID = args.NID[0] if args.NID else b"\x9c\xb0\xb2\xbb\xf5\x6c\x0e"
-        self.NMK = args.NMK[0] if args.NMK else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
+        self.NMK = (
+            args.NMK[0]
+            if args.NMK
+            else b"\x48\xfe\x56\x02\xdb\xac\xcd\xe5\x1e\xda\xdc\x3e\x08\x1a\x52\xd1"
+        )
         self.protocol = Protocol(args.protocol[0]) if args.protocol else Protocol.DIN
         self.nmapMAC = args.nmap_mac[0] if args.nmap_mac else ""
         self.nmapIP = args.nmap_ip[0] if args.nmap_ip else ""
         self.nmapPorts = []
         if args.nmap_ports:
-            for arg in args.nmap_port[0].split(','):
+            for arg in args.nmap_ports[0].split(","):
                 if "-" in arg:
-                    i1,i2 = arg.split("-")
-                    for i in range(int(i1), int(i2)+1):
+                    i1, i2 = arg.split("-")
+                    for i in range(int(i1), int(i2) + 1):
                         self.nmapPorts.append(i)
                 else:
                     self.nmapPorts.append(int(arg))
@@ -398,6 +422,7 @@ class _TCPHandler:
         self.scanner = None
 
         self.timeout = 5
+        self.finishedNMAP = True  # Added to prevent AttributeError
 
     def start(self):
         self.msgList = {}
@@ -407,7 +432,9 @@ class _TCPHandler:
 
         self.recvThread = AsyncSniffer(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+            lfilter=lambda x: x.haslayer("TCP")
+            and x[TCP].sport == self.destinationPort
+            and x[TCP].dport == self.sourcePort,
             prn=self.handlePacket,
             started_callback=self.setStartSniff,
         )
@@ -417,12 +444,20 @@ class _TCPHandler:
             continue
 
         self.handshakeThread = AsyncSniffer(
-            count=1, iface=self.iface, lfilter=lambda x: x.haslayer("IPv6") and x.haslayer("TCP") and x[TCP].flags == "S", prn=self.handshake
+            count=1,
+            iface=self.iface,
+            lfilter=lambda x: x.haslayer("IPv6")
+            and x.haslayer("TCP")
+            and x[TCP].flags == "S",
+            prn=self.handshake,
         )
         self.handshakeThread.start()
 
         self.neighborSolicitationThread = AsyncSniffer(
-            iface=self.iface, lfilter=lambda x: x.haslayer("ICMPv6ND_NS") and x[ICMPv6ND_NS].tgt == self.sourceIP, prn=self.sendNeighborSoliciation
+            iface=self.iface,
+            lfilter=lambda x: x.haslayer("ICMPv6ND_NS")
+            and x[ICMPv6ND_NS].tgt == self.sourceIP,
+            prn=self.sendNeighborSoliciation,
         )
         self.neighborSolicitationThread.start()
 
@@ -452,7 +487,9 @@ class _TCPHandler:
         print("EVSE (INFO): Starting recv thread")
         sniff(
             iface=self.iface,
-            lfilter=lambda x: x.haslayer("TCP") and x[TCP].sport == self.destinationPort and x[TCP].dport == self.sourcePort,
+            lfilter=lambda x: x.haslayer("TCP")
+            and x[TCP].sport == self.destinationPort
+            and x[TCP].dport == self.sourcePort,
             prn=self.handlePacket,
             started_callback=self.setStartSniff,
         )
@@ -579,7 +616,15 @@ class _TCPHandler:
                     if self.scanner == None:
                         nmapMAC = self.evse.nmapMAC if self.evse.nmapMAC else self.destinationMAC
                         nmapIP = self.evse.nmapIP if self.evse.nmapIP else self.destinationIP
-                        self.scanner = NMAPScanner(EmulatorType.EVSE, self.evse.nmapPorts, self.iface, self.sourceMAC, self.sourceIP, nmapMAC, nmapIP)
+                        self.scanner = NMAPScanner(
+                            EmulatorType.EVSE,
+                            self.evse.nmapPorts,
+                            self.iface,
+                            self.sourceMAC,
+                            self.sourceIP,
+                            nmapMAC,
+                            nmapIP,
+                        )
                     self.scanner.start()
             elif "ChargeParameterDiscoveryReq" in name:
                 self.xml.ChargeParameterDiscoveryResponse()
@@ -670,7 +715,7 @@ class _TCPHandler:
 
 
 if __name__ == "__main__":
-    # Parse arguements from command line
+    # Parse arguments from command line
     parser = argparse.ArgumentParser(description="EVSE emulator for AcCCS")
     parser.add_argument(
         "-M",
@@ -679,30 +724,79 @@ if __name__ == "__main__":
         type=int,
         help="Mode for emulator to run in: 0 for full conversation, 1 for stalling the conversation, 2 for portscanning (default: 0)",
     )
-    parser.add_argument("-I", "--interface", nargs=1, help="Ethernet interface to send/recieve packets on (default: eth1)")
-    parser.add_argument("--source-mac", nargs=1, help="Source MAC address of packets (default: 00:1e:c0:f2:6c:a0)")
-    parser.add_argument("--source-ip", nargs=1, help="Source IP address of packets (default: fe80::21e:c0ff:fef2:72f3)")
-    parser.add_argument("--source-port", nargs=1, type=int, help="Source port of packets (default: 25565)")
-    parser.add_argument("--NID", nargs=1, help="Network ID of the HomePlug GreenPHY AVLN (default: \\x9c\\xb0\\xb2\\xbb\\xf5\\x6c\\x0e)")
+    parser.add_argument(
+        "-I",
+        "--interface",
+        nargs=1,
+        help="Ethernet interface to send/recieve packets on (default: eth1)",
+    )
+    parser.add_argument(
+        "--source-mac",
+        nargs=1,
+        help="Source MAC address of packets (default: 00:1e:c0:f2:6c:a0)",
+    )
+    parser.add_argument(
+        "--source-ip",
+        nargs=1,
+        help="Source IP address of packets (default: fe80::21e:c0ff:fef2:72f3)",
+    )
+    parser.add_argument(
+        "--source-port",
+        nargs=1,
+        type=int,
+        help="Source port of packets (default: 25565)",
+    )
+    parser.add_argument(
+        "--NID",
+        nargs=1,
+        help="Network ID of the HomePlug GreenPHY AVLN (default: \\x9c\\xb0\\xb2\\xbb\\xf5\\x6c\\x0e)",
+    )
     parser.add_argument(
         "--NMK",
         nargs=1,
         help="Network Membership Key of the HomePlug GreenPHY AVLN (default: \\x48\\xfe\\x56\\x02\\xdb\\xac\\xcd\\xe5\\x1e\\xda\\xdc\\x3e\\x08\\x1a\\x52\\xd1)",
     )
-    parser.add_argument("-p", "--protocol", nargs=1, help="Protocol for EXI encoding/decoding: DIN, ISO-2, ISO-20 (default: DIN)")
-    parser.add_argument("--nmap-mac", nargs=1, help="The MAC address of the target device to NMAP scan (default: EVCC MAC address)")
-    parser.add_argument("--nmap-ip", nargs=1, help="The IP address of the target device to NMAP scan (default: EVCC IP address)")
-    parser.add_argument("--nmap-ports", nargs=1, help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)")
-    parser.add_argument("--modified-cordset", action="store_true", help="Set this option when using a modified cordset during testing of a target vehicle. The AcCCS system will provide a 150 ohm ground on the proximity line to reset the connection. (default: False)")
+    parser.add_argument(
+        "-p",
+        "--protocol",
+        nargs=1,
+        help="Protocol for EXI encoding/decoding: DIN, ISO-2, ISO-20 (default: DIN)",
+    )
+    parser.add_argument(
+        "--nmap-mac",
+        nargs=1,
+        help="The MAC address of the target device to NMAP scan (default: EVCC MAC address)",
+    )
+    parser.add_argument(
+        "--nmap-ip",
+        nargs=1,
+        help="The IP address of the target device to NMAP scan (default: EVCC IP address)",
+    )
+    parser.add_argument(
+        "--nmap-ports",
+        nargs=1,
+        help="List of ports to scan seperated by commas (ex. 1,2,5-10,19,...) (default: Top 8000 common ports)",
+    )
+    parser.add_argument(
+        "--modified-cordset",
+        action="store_true",
+        help="Set this option when using a modified cordset during testing of a target vehicle. The AcCCS system will provide a 150 ohm ground on the proximity line to reset the connection. (default: False)",
+    )
     args = parser.parse_args()
 
-    evse = EVSE(args)
-    try:
-        evse.start()
-    except KeyboardInterrupt:
-        print("INFO (EVSE): Shutting down emulator")
-    except Exception as e:
-        print(e)
-    finally:
-        evse.openProximity()
-        del evse
+    while True:
+        try:
+            evse = EVSE(args)
+            evse.start()
+        except KeyboardInterrupt:
+            print("INFO (EVSE): Shutting down emulator")
+            evse.openProximity()
+            del evse
+            break
+        except Exception as e:
+            print("An error occurred:", e)
+            print("Restarting EVSE...")
+            evse.openProximity()
+            del evse
+            time.sleep(1)  # wait a bit before restarting
+            continue
