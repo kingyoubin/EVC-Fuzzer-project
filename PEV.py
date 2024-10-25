@@ -402,15 +402,13 @@ class _TCPHandler:
         self.state_file = 'fuzzing_state.json'
         self.state = {}
         self.elements_to_modify = [
-            "Body/PreChargeReq/DC_EVStatus/EVReady",
-            "Body/PreChargeReq/DC_EVStatus/EVErrorCode",
-            "Body/PreChargeReq/DC_EVStatus/EVRESSSOC",
-            "Body/PreChargeReq/EVTargetVoltage/Multiplier",
-            "Body/PreChargeReq/EVTargetVoltage/Unit",
-            "Body/PreChargeReq/EVTargetVoltage/Value",
-            "Body/PreChargeReq/EVTargetCurrent/Multiplier",
-            "Body/PreChargeReq/EVTargetCurrent/Unit",
-            "Body/PreChargeReq/EVTargetCurrent/Value"
+            "Body/PowerDeliveryReq/ReadyToChargeState",
+            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVReady",
+            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVCabinConditioning",
+            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVRESSConditioning",
+            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVErrorCode",
+            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVRESSSOC",
+            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/ChargingComplete"
         ]
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -829,7 +827,7 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.PreChargeRequest()
+        handler.PowerDeliveryRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
 
         # Load fuzzing state
