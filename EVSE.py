@@ -373,22 +373,22 @@ class _SLACHandler:
     def buildSetKey(self):
         ethLayer = Ether()
         ethLayer.src = self.sourceMAC
-        ethLayer.dst = "00:b0:52:00:00:01"  # AtherosC MAC address
+        ethLayer.dst = "00:b0:52:00:00:01"  # Destination MAC address
 
         homePlugAVLayer = HomePlugAV()
         homePlugAVLayer.version = 0x01
 
         homePlugLayer = CM_SET_KEY_REQ()
-        homePlugLayer.KeyType = 0x1
-        homePlugLayer.MyNonce = 0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        homePlugLayer.YourNonce = b"\x00" * 16
-        homePlugLayer.PID = 0x4
-        homePlugLayer.Prn = 0x0
-        homePlugLayer.Pmn = 0x0
-        homePlugLayer.CCoCapability = 0x1
-        homePlugLayer.NID = self.NID
-        homePlugLayer.NewEncKey = self.NMK
-        homePlugLayer.NewEks = 0x1
+        homePlugLayer.KeyType = 0x01
+        homePlugLayer.MyNonce = b"\xAA" * 16  # Correctly set as 16-byte nonce
+        homePlugLayer.YourNonce = b"\x00" * 16  # Correctly set as 16-byte nonce
+        homePlugLayer.PID = 0x04
+        homePlugLayer.Prn = 0x0000
+        homePlugLayer.Pmn = 0x0000
+        homePlugLayer.CCoCapability = 0x01
+        homePlugLayer.NID = self.NID  # Should be a 7-byte bytes object
+        homePlugLayer.NewEncKey = self.NMK  # Should be a 16-byte bytes object
+        homePlugLayer.NewEks = 0x01
 
         responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
         return responsePacket
