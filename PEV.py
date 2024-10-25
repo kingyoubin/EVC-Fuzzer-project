@@ -402,13 +402,31 @@ class _TCPHandler:
         self.state_file = 'fuzzing_state.json'
         self.state = {}
         self.elements_to_modify = [
-            "Body/PowerDeliveryReq/ReadyToChargeState",
-            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVReady",
-            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVCabinConditioning",
-            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVRESSConditioning",
-            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVErrorCode",
-            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/DC_EVStatus/EVRESSSOC",
-            "Body/PowerDeliveryReq/DC_EVPowerDeliveryParameter/ChargingComplete"
+            "Body/CurrentDemandReq/DC_EVStatus/EVReady",
+            "Body/CurrentDemandReq/DC_EVStatus/EVCabinConditioning",
+            "Body/CurrentDemandReq/DC_EVStatus/EVRESSConditioning",
+            "Body/CurrentDemandReq/DC_EVStatus/EVErrorCode",
+            "Body/CurrentDemandReq/DC_EVStatus/EVRESSSOC",
+            "Body/CurrentDemandReq/EVTargetCurrent/Multiplier",
+            "Body/CurrentDemandReq/EVTargetCurrent/Unit",
+            "Body/CurrentDemandReq/EVTargetCurrent/Value",
+            "Body/CurrentDemandReq/EVMaximumVoltageLimit/Multiplier",
+            "Body/CurrentDemandReq/EVMaximumVoltageLimit/Unit",
+            "Body/CurrentDemandReq/EVMaximumVoltageLimit/Value",
+            "Body/CurrentDemandReq/EVMaximumCurrentLimit/Multiplier",
+            "Body/CurrentDemandReq/EVMaximumCurrentLimit/Unit",
+            "Body/CurrentDemandReq/EVMaximumCurrentLimit/Value",
+            "Body/CurrentDemandReq/BulkChargingComplete",
+            "Body/CurrentDemandReq/ChargingComplete",
+            "Body/CurrentDemandReq/RemainingTimeToFullSoC/Multiplier",
+            "Body/CurrentDemandReq/RemainingTimeToFullSoC/Unit",
+            "Body/CurrentDemandReq/RemainingTimeToFullSoC/Value",
+            "Body/CurrentDemandReq/RemainingTimeToBulkSoC/Multiplier",
+            "Body/CurrentDemandReq/RemainingTimeToBulkSoC/Unit",
+            "Body/CurrentDemandReq/RemainingTimeToBulkSoC/Value",
+            "Body/CurrentDemandReq/EVTargetVoltage/Multiplier",
+            "Body/CurrentDemandReq/EVTargetVoltage/Unit",
+            "Body/CurrentDemandReq/EVTargetVoltage/Value"
         ]
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
@@ -425,6 +443,7 @@ class _TCPHandler:
         self.charge_parameter_discovery_response_received = Event()
         self.cable_check_response_received = Event()
         self.pre_charge_response_received = Event()
+        self.power_delivery_response_received = Event()
 
     def start(self):
         self.msgList = {}
@@ -664,6 +683,32 @@ class _TCPHandler:
         else:
             print("ERROR (TCPHandler): EXI encoding failed for PreChargeRequest")
 
+    def send_power_delivery_request(self):
+        print("INFO (TCPHandler): Sending PowerDeliveryRequest")
+        handler = PacketHandler()
+        handler.PowerDeliveryRequest()
+        xml_string = ET.tostring(handler.root, encoding='unicode')
+        exi_payload = self.exi.encode(xml_string)
+        if exi_payload is not None:
+            try:
+                exi_payload_bytes = binascii.unhexlify(exi_payload)
+                packet = self.buildV2G(exi_payload_bytes)
+                # Set seq and ack
+                packet[TCP].seq = self.seq
+                packet[TCP].ack = self.ack
+                # Recalculate checksums
+                del packet[TCP].chksum
+                del packet[IPv6].plen
+                # Calculate the actual TCP payload length
+                tcp_payload_length = len(exi_payload_bytes) + 8
+                sendp(packet, iface=self.iface, verbose=0)
+                self.seq += tcp_payload_length  # Increment sequence number
+                print("INFO (TCPHandler): PowerDeliveryRequest sent successfully")
+            except binascii.Error as e:
+                print(f"ERROR (TCPHandler): Failed to unhexlify EXI payload: {e}")
+        else:
+            print("ERROR (TCPHandler): EXI encoding failed for PowerDeliveryRequest")
+
     def wait_and_start_fuzzing(self):
         # Wait for handshake to complete
         self.handshake_complete.wait()
@@ -717,11 +762,19 @@ class _TCPHandler:
                                     # Wait for PreChargeResponse
                                     print("INFO (TCPHandler): Waiting for PreChargeResponse...")
                                     if self.pre_charge_response_received.wait(timeout=15):
-                                        print("INFO (TCPHandler): Received PreChargeResponse, starting fuzzing.")
-                                        # Now send PowerDeliveryRequest and start fuzzing
-                                        self.send_fuzzing_messages()
+                                        print("INFO (TCPHandler): Received PreChargeResponse")
+                                        # Now send PowerDeliveryRequest
+                                        self.send_power_delivery_request()
+                                        # Wait for PowerDeliveryResponse
+                                        print("INFO (TCPHandler): Waiting for PowerDeliveryResponse...")
+                                        if self.power_delivery_response_received.wait(timeout=15):
+                                            print("INFO (TCPHandler): Received PowerDeliveryResponse, starting fuzzing.")
+                                            # Now send CurrentDemandRequest and start fuzzing
+                                            self.send_fuzzing_messages()
+                                        else:
+                                            print("WARNING (TCPHandler): PowerDeliveryResponse not received within timeout, not starting fuzzing.")
                                     else:
-                                        print("WARNING (TCPHandler): PreChargeResponse not received within timeout, not starting fuzzing.")
+                                        print("WARNING (TCPHandler): PreChargeResponse not received within timeout, not proceeding.")
                                 else:
                                     print("WARNING (TCPHandler): CableCheckResponse not received within timeout, not proceeding.")
                             else:
@@ -827,8 +880,9 @@ class _TCPHandler:
     def send_fuzzing_messages(self):
         # Build the initial XML message
         handler = PacketHandler()
-        handler.PowerDeliveryRequest()
+        handler.CurrentDemandRequest()
         xml_string = ET.tostring(handler.root, encoding='unicode')
+
 
         # Load fuzzing state
         self.load_state()
@@ -924,6 +978,10 @@ class _TCPHandler:
                         elif message_tag == "PreChargeRes":
                             print("INFO (TCPHandler): Received PreChargeResponse")
                             self.pre_charge_response_received.set()
+                            return
+                        elif message_tag == "PowerDeliveryRes":
+                            print("INFO (TCPHandler): Received PowerDeliveryResponse")
+                            self.power_delivery_response_received.set()
                             return
                         else:
                             print(f"INFO (TCPHandler): Received unknown message inside V2G_Message: {message_tag}")
