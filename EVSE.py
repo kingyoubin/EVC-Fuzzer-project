@@ -13,11 +13,11 @@ import xml.etree.ElementTree as ET
 import binascii
 from threading import Thread, Event
 
-# Add custom library paths
+# 커스텀 라이브러리 경로 추가
 sys.path.append("./external_libs/HomePlugPWN")
 sys.path.append("./external_libs/V2GInjector/core")
 
-# Import custom layers and modules
+# 커스텀 레이어 및 모듈 임포트
 from layers.SECC import *
 from layers.V2G import *
 from layerscapy.HomePlugGP import *
@@ -26,7 +26,7 @@ from EXIProcessor import EXIProcessor
 from EmulatorEnum import *
 from NMAPScanner import NMAPScanner
 
-# Import Scapy components
+# Scapy 컴포넌트 임포트
 from scapy.all import (
     sendp,
     sniff,
@@ -80,30 +80,30 @@ class EVSE:
         self.slac = _SLACHandler(self)
         self.tcp = _TCPHandler(self)
 
-        # I2C bus for relays
+        # I2C 버스 (릴레이 제어용)
         # self.bus = SMBus(1)
 
-        # Constants for i2c controlled relays
+        # I2C 제어용 상수
         self.I2C_ADDR = 0x20
         self.CONTROL_REG = 0x9
         self.EVSE_CP = 0b1
         self.EVSE_PP = 0b1000
         self.ALL_OFF = 0b0
 
-    # Start the emulator
+    # 에뮬레이터 시작
     def start(self):
-        # Initialize the I2C bus for write
+        # I2C 버스 초기화
         # self.bus.write_byte_data(self.I2C_ADDR, 0x00, 0x00)
 
         self.toggleProximity()
         self.doSLAC()
         self.doTCP()
-        # If NMAP is not done, restart connection
+        # NMAP이 완료되지 않은 경우 연결을 재시작
         if not self.tcp.finishedNMAP:
             print("INFO (EVSE): Attempting to restart connection...")
             self.start()
 
-    # Close the circuit for the proximity pins
+    # Proximity 핀의 회로를 닫음
     def closeProximity(self):
         if self.modified_cordset:
             print("INFO (EVSE): Closing CP/PP relay connections")
@@ -112,30 +112,30 @@ class EVSE:
             print("INFO (EVSE): Closing CP relay connection")
             # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.EVSE_CP)
 
-    # Close the circuit for the proximity pins
+    # Proximity 핀의 회로를 열음
     def openProximity(self):
         print("INFO (EVSE): Opening CP/PP relay connections")
         # self.bus.write_byte_data(self.I2C_ADDR, self.CONTROL_REG, self.ALL_OFF)
 
-    # Opens and closes proximity circuit with a delay
+    # 지연 시간 후에 Proximity 회로를 열고 닫음
     def toggleProximity(self, t: int = 5):
         self.openProximity()
         time.sleep(t)
         self.closeProximity()
 
-    # Starts TCP/IPv6 thread that handles layer 3 comms
+    # 레이어 3 통신을 처리하는 TCP/IPv6 스레드 시작
     def doTCP(self):
         self.tcp.start()
         print("INFO (EVSE): Done TCP")
 
-    # Starts SLAC thread that handles layer 2 comms
+    # 레이어 2 통신을 처리하는 SLAC 스레드 시작
     def doSLAC(self):
         self.slac.start()
         self.slac.sniffThread.join()
         print("INFO (EVSE): Done SLAC")
 
 
-# Handles all SLAC communications
+# 모든 SLAC 통신을 처리
 class _SLACHandler:
     def __init__(self, evse: EVSE):
         self.evse = evse
@@ -148,9 +148,9 @@ class _SLACHandler:
 
         self.timeout = 8
         self.stop = False
-        self.exception_event = Event()  # Event to signal exception
+        self.exception_event = Event()  # 예외 발생 시 알림을 위한 이벤트
 
-    # Starts SLAC process
+    # SLAC 프로세스 시작
     def start(self):
         self.stop = False
         print("INFO (EVSE): Sending SET_KEY_REQ")
@@ -161,7 +161,7 @@ class _SLACHandler:
         self.timeoutThread = Thread(target=self.checkForTimeout)
         self.timeoutThread.start()
 
-        # Wait for threads to finish or exception to occur
+        # 스레드가 완료되거나 예외가 발생할 때까지 대기
         while self.sniffThread.is_alive():
             if self.exception_event.is_set():
                 print("INFO (EVSE): Exception occurred in SLACHandler, stopping...")
@@ -191,7 +191,7 @@ class _SLACHandler:
         if pkt.haslayer("SECC_RequestMessage"):
             print("INFO (EVSE): Received SECC_RequestMessage")
             # self.evse.destinationMAC = pkt[Ether].src
-            # use this to send 3 secc responses in case car doesn't see one
+            # 차량이 SECC 응답을 보지 못할 경우를 대비해 3번 전송
             self.destinationIP = pkt[IPv6].src
             self.destinationPort = pkt[UDP].sport
             Thread(target=self.sendSECCResponse).start()
@@ -231,7 +231,182 @@ class _SLACHandler:
             print(f"Exception in SLACHandler handlePacket: {e}")
             self.exception_event.set()
 
-    # ... [Rest of the methods in _SLACHandler remain unchanged] ...
+    def buildSlacParmCnf(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        homePlugAVLayer = HomePlugAV()
+        homePlugAVLayer.version = 0x01
+
+        # 패킷 #13에서 복사한 파라미터
+        homePlugLayer = CM_SLAC_PARM_CNF()
+        homePlugLayer.MSoundTargetMAC = "ff:ff:ff:ff:ff:ff"
+        homePlugLayer.NumberMSounds = 0x0A
+        homePlugLayer.TimeOut = 0x06
+        homePlugLayer.ResponseType = 0x01
+        homePlugLayer.ForwardingSTA = self.destinationMAC
+        homePlugLayer.RunID = self.runID
+
+        # 패딩
+        rawLayer = Raw()
+        rawLayer.load = b"\x00" * 16
+
+        responsePacket = ethLayer / homePlugAVLayer / homePlugLayer / rawLayer
+        return responsePacket
+
+    def buildAttenCharInd(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        homePlugAVLayer = HomePlugAV()
+        homePlugAVLayer.version = 0x01
+
+        # 패킷 #29에서 복사한 파라미터
+        homePlugLayer = CM_ATTEN_CHAR_IND()
+        homePlugLayer.ApplicationType = 0x00
+        homePlugLayer.SecurityType = 0x00
+        homePlugLayer.SourceAddress = self.destinationMAC
+        homePlugLayer.RunID = self.runID
+        homePlugLayer.NumberOfSounds = 0x0A
+        homePlugLayer.NumberOfGroups = 58
+        attens = [
+            26,
+            25,
+            26,
+            28,
+            25,
+            27,
+            34,
+            33,
+            33,
+            36,
+            31,
+            31,
+            31,
+            31,
+            30,
+            29,
+            29,
+            28,
+            27,
+            26,
+            25,
+            23,
+            22,
+            22,
+            21,
+            20,
+            24,
+            27,
+            31,
+            36,
+            41,
+            45,
+            45,
+            38,
+            32,
+            29,
+            29,
+            31,
+            32,
+            32,
+            32,
+            34,
+            35,
+            35,
+            35,
+            35,
+            35,
+            35,
+            34,
+            38,
+            39,
+            39,
+            40,
+            40,
+            39,
+            41,
+            42,
+            57,
+        ]
+        groups = []
+        for e in attens:
+            g = HPGP_GROUP()
+            g.group = e
+            groups.append(g)
+        homePlugLayer.Groups = groups
+
+        responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
+        return responsePacket
+
+    def buildSlacMatchCnf(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        homePlugAVLayer = HomePlugAV()
+        homePlugAVLayer.version = 0x01
+
+        slacVars = SLAC_varfield_cnf()
+        slacVars.EVMAC = self.destinationMAC
+        slacVars.EVSEMAC = self.sourceMAC
+        slacVars.RunID = self.runID
+        slacVars.NetworkID = self.NID
+        slacVars.NMK = self.NMK
+
+        homePlugLayer = CM_SLAC_MATCH_CNF()
+        homePlugLayer.MatchVariableFieldLen = 0x5600
+        homePlugLayer.VariableField = slacVars
+
+        responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
+        return responsePacket
+
+    def buildSetKey(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = "00:b0:52:00:00:01"  # AtherosC MAC 주소
+
+        homePlugAVLayer = HomePlugAV()
+        homePlugAVLayer.version = 0x01
+
+        homePlugLayer = CM_SET_KEY_REQ()
+        homePlugLayer.KeyType = 0x1
+        homePlugLayer.MyNonce = 0xAAAAAAAA
+        homePlugLayer.YourNonce = 0x00000000
+        homePlugLayer.PID = 0x4
+        homePlugLayer.NetworkID = self.NID
+        homePlugLayer.NewEncKeySelect = 0x1
+        homePlugLayer.NewKey = self.NMK
+
+        responsePacket = ethLayer / homePlugAVLayer / homePlugLayer
+        return responsePacket
+
+    def buildSECCResponse(self):
+        e = Ether()
+        e.src = self.sourceMAC
+        e.dst = self.destinationMAC
+
+        ip = IPv6()
+        ip.src = self.sourceIP
+        ip.dst = self.destinationIP
+
+        udp = UDP()
+        udp.sport = 15118
+        udp.dport = self.destinationPort
+
+        secc = SECC()
+        secc.SECCType = 0x9001
+        secc.PayloadLen = 20
+
+        seccRM = SECC_ResponseMessage()
+        seccRM.SecurityProtocol = 16
+        seccRM.TargetPort = self.sourcePort
+        seccRM.TargetAddress = self.sourceIP
+
+        responsePacket = e / ip / udp / secc / seccRM
+        return responsePacket
 
 
 class _TCPHandler:
@@ -258,8 +433,8 @@ class _TCPHandler:
         self.scanner = None
 
         self.timeout = 5
-        self.finishedNMAP = True  # Added to prevent AttributeError
-        self.exception_event = Event()  # Event to signal exception
+        self.finishedNMAP = True  # AttributeError 방지
+        self.exception_event = Event()  # 예외 발생 시 알림을 위한 이벤트
 
     def start(self):
         self.msgList = {}
@@ -336,6 +511,54 @@ class _TCPHandler:
             print(f"Exception in TCPHandler neighbor solicitation thread: {e}")
             self.exception_event.set()
 
+    # 스니퍼 시작 여부 설정
+    def setStartSniff(self):
+        self.startSniff = True
+
+    def fin(self):
+        print("INFO (EVSE): Received FIN")
+        self.running = False
+        self.ack = self.ack + 1
+
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+
+        tcpLayer = TCP()
+        tcpLayer.sport = self.sourcePort
+        tcpLayer.dport = self.destinationPort
+        tcpLayer.flags = "A"
+        tcpLayer.seq = self.seq
+        tcpLayer.ack = self.ack
+
+        ack = ethLayer / ipLayer / tcpLayer
+
+        sendp(ack, iface=self.iface, verbose=0)
+
+        tcpLayer.flags = "FA"
+
+        finAck = ethLayer / ipLayer / tcpLayer
+
+        print("INFO (EVSE): Sending FINACK")
+
+        sendp(finAck, iface=self.iface, verbose=0)
+
+    def killThreads(self):
+        print("INFO (EVSE): Killing sniffing threads")
+        self.running = False
+        if self.scanner:
+            self.scanner.stop()
+        if hasattr(self, 'recvSniffer') and self.recvSniffer.running:
+            self.recvSniffer.stop()
+        if hasattr(self, 'handshakeSniffer') and self.handshakeSniffer.running:
+            self.handshakeSniffer.stop()
+        if hasattr(self, 'neighborSolicitationSniffer') and self.neighborSolicitationSniffer.running:
+            self.neighborSolicitationSniffer.stop()
+
     def handlePacket(self, pkt):
         try:
             self.last_recv = pkt
@@ -353,7 +576,7 @@ class _TCPHandler:
             data = self.last_recv[Raw].load
             v2g = V2GTP(data)
             payload = v2g.Payload
-            # Save responses to decrease load on java webserver
+            # 응답을 저장하여 Java 웹서버의 부하 감소
             if payload in self.msgList.keys():
                 exi = self.msgList[payload]
             else:
@@ -367,11 +590,152 @@ class _TCPHandler:
             print(f"Exception in TCPHandler handlePacket: {e}")
             self.exception_event.set()
 
-    # ... [Rest of the methods in _TCPHandler remain unchanged] ...
+    def buildV2G(self, payload):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+
+        tcpLayer = TCP()
+        tcpLayer.sport = self.sourcePort
+        tcpLayer.dport = self.destinationPort
+        tcpLayer.seq = self.seq
+        tcpLayer.ack = self.ack
+        tcpLayer.flags = "PA"
+
+        v2gLayer = V2GTP()
+        v2gLayer.PayloadLen = len(payload)
+        v2gLayer.Payload = payload
+
+        return ethLayer / ipLayer / tcpLayer / v2gLayer
+
+    def getEXIFromPayload(self, data):
+        data = binascii.hexlify(data)
+        xmlString = self.exi.decode(data)
+        # print(f"XML String: {xmlString}")
+        root = ET.fromstring(xmlString)
+
+        if root.text is None:
+            if root[0].tag == "AppProtocol":
+                self.xml.SupportedAppProtocolResponse()
+                return self.xml.getEXI()
+
+            name = root[1][0].tag
+            print(f"Request: {name}")
+            if "SessionSetupReq" in name:
+                self.xml.SessionSetupResponse()
+            elif "ServiceDiscoveryReq" in name:
+                self.xml.ServiceDiscoveryResponse()
+            elif "ServicePaymentSelectionReq" in name:
+                self.xml.ServicePaymentSelectionResponse()
+            elif "ContractAuthenticationReq" in name:
+                self.xml.ContractAuthenticationResponse()
+                if self.evse.mode == RunMode.STOP:
+                    self.xml.EVSEProcessing.text = "Ongoing"
+                elif self.evse.mode == RunMode.SCAN:
+                    self.xml.EVSEProcessing.text = "Ongoing"
+                    # 연결이 유지되는 동안 nmap 스캔 시작
+                    if self.scanner is None:
+                        nmapMAC = self.evse.nmapMAC if self.evse.nmapMAC else self.destinationMAC
+                        nmapIP = self.evse.nmapIP if self.evse.nmapIP else self.destinationIP
+                        self.scanner = NMAPScanner(
+                            EmulatorType.EVSE,
+                            self.evse.nmapPorts,
+                            self.iface,
+                            self.sourceMAC,
+                            self.sourceIP,
+                            nmapMAC,
+                            nmapIP,
+                        )
+                    self.scanner.start()
+            elif "ChargeParameterDiscoveryReq" in name:
+                self.xml.ChargeParameterDiscoveryResponse()
+                # self.xml.MinCurrentLimitValue.text = "0"
+                self.xml.MaxCurrentLimitValue.text = "5"
+            elif "CableCheckReq" in name:
+                self.xml.CableCheckResponse()
+            elif "PreChargeReq" in name:
+                self.xml.PreChargeResponse()
+                self.xml.Multiplier.text = root[1][0][1][0].text
+                self.xml.Value.text = root[1][0][1][2].text
+            elif "PowerDeliveryReq" in name:
+                self.xml.PowerDeliveryResponse()
+            elif "CurrentDemandReq" in name:
+                self.xml.CurrentDemandResponse()
+                self.xml.CurrentMultiplier.text = root[1][0][1][0].text
+                self.xml.CurrentValue.text = root[1][0][1][2].text
+                self.xml.VoltageMultiplier.text = root[1][0][8][0].text
+                self.xml.VoltageValue.text = root[1][0][8][2].text
+                self.xml.CurrentLimitValue.text = "5"
+            elif "SessionStopReq" in name:
+                self.running = False
+                self.xml.SessionStopResponse()
+            else:
+                raise Exception(f'Packet type "{name}" not recognized')
+            return self.xml.getEXI()
+
+    def sendNeighborSolicitation(self, pkt):
+        self.destinationMAC = pkt[Ether].src
+        self.destinationIP = pkt[IPv6].src
+        # print("INFO (EVSE): Sending Neighbor Advertisement")
+        sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
+
+    def handshake(self, syn):
+        self.destinationMAC = syn[Ether].src
+        self.destinationIP = syn[IPv6].src
+        self.destinationPort = syn[TCP].sport
+        self.ack = syn[TCP].seq + 1
+
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+
+        tcpLayer = TCP()
+        tcpLayer.sport = self.sourcePort
+        tcpLayer.dport = self.destinationPort
+        tcpLayer.flags = "SA"
+        tcpLayer.seq = self.seq
+        tcpLayer.ack = self.ack
+
+        synAck = ethLayer / ipLayer / tcpLayer
+        print("INFO (EVSE): Sending SYNACK")
+        sendp(synAck, iface=self.iface, verbose=0)
+
+    def buildNeighborAdvertisement(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+        ipLayer.plen = 32
+        ipLayer.hlim = 255
+
+        icmpLayer = ICMPv6ND_NA()
+        icmpLayer.type = 136
+        icmpLayer.R = 0
+        icmpLayer.S = 1
+        icmpLayer.tgt = self.sourceIP
+
+        optLayer = ICMPv6NDOptDstLLAddr()
+        optLayer.type = 2
+        optLayer.len = 1
+        optLayer.lladdr = self.sourceMAC
+
+        responsePacket = ethLayer / ipLayer / icmpLayer / optLayer
+        return responsePacket
 
 
 if __name__ == "__main__":
-    # Parse arguments from command line
+    # 명령줄 인자 파싱
     parser = argparse.ArgumentParser(description="EVSE emulator for AcCCS")
     parser.add_argument(
         "-M",
@@ -454,5 +818,5 @@ if __name__ == "__main__":
             print("Restarting EVSE...")
             evse.openProximity()
             del evse
-            time.sleep(1)  # wait a bit before restarting
+            time.sleep(1)  # 재시작 전에 잠시 대기
             continue
