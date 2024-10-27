@@ -450,12 +450,13 @@ class _TCPHandler:
             iface=self.iface, lfilter=lambda x: x.haslayer("ICMPv6ND_NS") and x[ICMPv6ND_NS].tgt == self.sourceIP, prn=self.sendNeighborAdvertisement
         )
         self.neighborSolicitationThread.start()
+        
+        while self.running:
+            time.sleep(1)
 
         self.fuzzing_control_thread = Thread(target=self.wait_and_start_fuzzing)
         self.fuzzing_control_thread.start()
 
-        while self.running:
-            time.sleep(1)
 
     def send_supported_app_protocol_request(self):
         print("INFO (TCPHandler): Sending SupportedAppProtocolRequest")
