@@ -407,7 +407,13 @@ class _TCPHandler:
         self.state_file = 'fuzzing_state.json'
         self.state = {}
         self.elements_to_modify = ["ProtocolNamespace", "VersionNumberMajor", "VersionNumberMinor", "SchemaID", "Priority"]
-        
+        self.mutation_functions = {
+        "ProtocolNamespace": mutate_ProtocolNamespace,
+        "VersionNumberMajor": mutate_VersionNumberMajor,
+        "VersionNumberMinor": mutate_VersionNumberMinor,
+        "SchemaID": mutate_SchemaID,
+        "Priority": mutate_Priority,
+        }
         # Initialize crash tracking
         self.crash_info = []  # List to store crash details
         self.total_attempts = 0
@@ -681,115 +687,6 @@ class _TCPHandler:
         print(f"{'=' * 40}\n")
 
 
-    # Mutation functions for each element
-    def mutate_ProtocolNamespace(self, value):
-        # Ensure value is a string of length <= 100
-        # Mutate the string but keep length <= 100
-        mutation_funcs = [self.value_flip_string, self.random_value_string, self.random_deletion_string, self.random_insertion_string]
-        mutated_value = random.choice(mutation_funcs)(value)
-        if len(mutated_value) > 100:
-            mutated_value = mutated_value[:100]
-        return mutated_value
-
-    def mutate_VersionNumberMajor(self, value):
-        # Mutate the unsigned integer
-        value_int = self.safe_int(value, default=1)
-        mutated_value_int = self.mutate_unsigned_int(value_int)
-        return str(mutated_value_int)
-
-    def mutate_VersionNumberMinor(self, value):
-        # Mutate the unsigned integer
-        value_int = self.safe_int(value, default=1)
-        mutated_value_int = self.mutate_unsigned_int(value_int)
-        return str(mutated_value_int)
-
-    def mutate_SchemaID(self, value):
-        # Mutate the unsigned byte (0-255)
-        value_int = self.safe_int(value, default=0)
-        mutated_value_int = self.mutate_unsigned_byte(value_int)
-        return str(mutated_value_int)
-
-    def mutate_Priority(self, value):
-        # Mutate the unsigned byte between 1 and 20
-        value_int = self.safe_int(value, default=1)
-        mutated_value_int = self.mutate_priority(value_int)
-        return str(mutated_value_int)
-
-    # Helper functions for mutations
-
-    def safe_int(self, value, default=0):
-        try:
-            return int(value)
-        except ValueError:
-            return default
-
-    def mutate_unsigned_int(self, value):
-        # Generate a random unsigned int (non-negative integer)
-        # Apply small mutations to the value
-        mutation = random.choice(['increment', 'decrement', 'random'])
-        if mutation == 'increment':
-            value += random.randint(1, 10)
-        elif mutation == 'decrement':
-            value = max(0, value - random.randint(1, 10))
-        elif mutation == 'random':
-            value = random.randint(0, value + 100)
-        return value
-
-    def mutate_unsigned_byte(self, value):
-        # Generate a random unsigned byte (0-255)
-        mutation = random.choice(['increment', 'decrement', 'random'])
-        if mutation == 'increment':
-            value = min(255, value + random.randint(1, 10))
-        elif mutation == 'decrement':
-            value = max(0, value - random.randint(1, 10))
-        elif mutation == 'random':
-            value = random.randint(0, 255)
-        return value
-
-    def mutate_priority(self, value):
-        # Generate a random value between 1 and 20
-        mutation = random.choice(['increment', 'decrement', 'random'])
-        if mutation == 'increment':
-            value = min(20, value + random.randint(1, 5))
-        elif mutation == 'decrement':
-            value = max(1, value - random.randint(1, 5))
-        elif mutation == 'random':
-            value = random.randint(1, 20)
-        return value
-
-    def value_flip_string(self, value):
-        if len(value) < 2:
-            return value
-        idx1, idx2 = random.sample(range(len(value)), 2)
-        value_list = list(value)
-        value_list[idx1], value_list[idx2] = value_list[idx2], value_list[idx1]
-        return ''.join(value_list)
-
-    def random_value_string(self, value):
-        if len(value) == 0:
-            return value
-        idx = random.randrange(len(value))
-        new_char = random.choice(string.printable)
-        value_list = list(value)
-        value_list[idx] = new_char
-        return ''.join(value_list)
-
-    def random_deletion_string(self, value):
-        if len(value) == 0:
-            return value
-        idx = random.randrange(len(value))
-        value_list = list(value)
-        del value_list[idx]
-        return ''.join(value_list)
-
-    def random_insertion_string(self, value):
-        # Randomly select insertion position
-        insert_idx = random.randrange(len(value)+1)
-        # Randomly select character to insert
-        random_char = random.choice(string.printable)
-        value_list = list(value)
-        value_list.insert(insert_idx, random_char)
-        return ''.join(value_list)
 
     def buildV2G(self, payload):
         ethLayer = Ether()
