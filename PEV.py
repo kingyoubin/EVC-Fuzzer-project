@@ -1248,10 +1248,71 @@ class _TCPHandler:
         print("INFO (PEV) : Sending SYN")
         sendp(synPacket, iface=self.iface, verbose=0)
 
+    def sendNeighborSolicitation(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = "33:33:ff:00" + self.destinationIP[-7:-5] + ":" + self.destinationIP[-4:-2] + ":" + self.destinationIP[-2:]
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = "ff02::1:" + self.destinationIP[-9:]
+
+        icmpLayer = ICMPv6ND_NS()
+        icmpLayer.type = 135
+        icmpLayer.tgt = self.destinationIP
+
+        optLayer = ICMPv6NDOptDstLLAddr()
+        optLayer.type = 1
+        optLayer.len = 1
+        optLayer.lladdr = self.sourceMAC
+
+        pkt = ethLayer / ipLayer / icmpLayer / optLayer
+        print("INFO (PEV) : Sending Neighbor Solicitation")
+        sendp(pkt, iface=self.iface, verbose=0)
+
     def sendNeighborAdvertisement(self, pkt):
+        # if self.stop: exit()
+        # if not (pkt.haslayer("ICMPv6ND_NS") and pkt[ICMPv6ND_NS].tgt == self.sourceIP): return
         self.destinationMAC = pkt[Ether].src
         self.destinationIP = pkt[IPv6].src
+        # print("INFO (EVSE): Sending Neighor Advertisement")
         sendp(self.buildNeighborAdvertisement(), iface=self.iface, verbose=0)
+
+    def buildLeaveReq(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        # ethLayer.dst = self.destinationMAC
+        ethLayer.dst = "bc:f2:af:f2:0a:7b"
+
+        hpLayer = HomePlugAV(binascii.unhexlify(b"01340000000100000000000000000000000000000000000000000000000000000000000000000000000000000000"))
+
+        pkt = ethLayer / hpLayer
+        return pkt
+
+    def buildNeighborAdvertisement(self):
+        ethLayer = Ether()
+        ethLayer.src = self.sourceMAC
+        ethLayer.dst = self.destinationMAC
+
+        ipLayer = IPv6()
+        ipLayer.src = self.sourceIP
+        ipLayer.dst = self.destinationIP
+        ipLayer.plen = 32
+        ipLayer.hlim = 255
+
+        icmpLayer = ICMPv6ND_NA()
+        icmpLayer.type = 136
+        icmpLayer.R = 0
+        icmpLayer.S = 1
+        icmpLayer.tgt = self.sourceIP
+
+        optLayer = ICMPv6NDOptDstLLAddr()
+        optLayer.type = 2
+        optLayer.len = 1
+        optLayer.lladdr = self.sourceMAC
+
+        responsePacket = ethLayer / ipLayer / icmpLayer / optLayer
+        return responsePacket
 
     def load_state(self):
         if os.path.exists(self.state_file):
