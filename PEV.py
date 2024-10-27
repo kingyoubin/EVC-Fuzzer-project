@@ -759,11 +759,9 @@ class _TCPHandler:
             data_hex = binascii.hexlify(payload).decode()
             try:
                 xmlString = self.exi.decode(data_hex)
-                print(f"Received XML:\n{xmlString}")
                 root = ET.fromstring(xmlString)
                 # Extract local tag name without namespace
                 local_tag = root.tag.split('}')[-1] if '}' in root.tag else root.tag
-                print(f"Received XML message with tag: {local_tag}")
 
                 if local_tag == "supportedAppProtocolRes":
                     print("INFO (TCPHandler): Received SupportedAppProtocolResponse")
