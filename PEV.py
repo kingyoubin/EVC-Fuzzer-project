@@ -532,11 +532,11 @@ class _TCPHandler:
         else:
             self.ack = tcp_layer.seq + 1  # For packets without payload (e.g., SYN-ACK, FIN)
 
-        if pkt[TCP].flags & 0x04:  # RST flag
-            print("INFO (PEV) : Received RST")
-            self.rst_received = True
-            self.response_received.set()
-            return
+        ##if pkt[TCP].flags & 0x04:  # RST flag
+        ##    print("INFO (PEV) : Received RST")
+        ##   self.rst_received = True
+        ##    self.response_received.set()
+        ##    return
 
         if pkt[TCP].flags & 0x03F == 0x012:  # SYN-ACK
             print("INFO (PEV) : Received SYNACK")
