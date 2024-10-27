@@ -451,11 +451,12 @@ class _TCPHandler:
         )
         self.neighborSolicitationThread.start()
         
-        while self.running:
-            time.sleep(1)
 
         self.fuzzing_control_thread = Thread(target=self.wait_and_start_fuzzing)
         self.fuzzing_control_thread.start()
+
+        while self.running:
+            time.sleep(1)
 
 
     def send_supported_app_protocol_request(self):
