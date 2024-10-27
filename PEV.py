@@ -19,6 +19,13 @@ import argparse
 import time
 import string
 import json
+from mutations import (
+    mutate_ProtocolNamespace,
+    mutate_VersionNumberMajor,
+    mutate_VersionNumberMinor,
+    mutate_SchemaID,
+    mutate_Priority,
+)
 
 class PEV:
 
@@ -571,17 +578,14 @@ class _TCPHandler:
                     if not elem.text:
                         elem.text = "1"  # Assign default value "1"
 
-                    mutated_value = elem.text  # Initial value
-
                     start_iteration = iteration_count.get(element_name, 0)
 
                     for iteration in range(start_iteration, self.iterations_per_element):
-                        # Randomly select one of the four mutation functions
-                        mutation_func = random.choice([self.value_flip, self.random_value, self.random_deletion, self.random_insertion])
-                        mutated_value = mutation_func(mutated_value)  # Perform the randomly selected mutation
+                        # Use the mutation function specific to the element
+                        mutated_value = self.mutation_functions[element_name](elem.text)
 
                         # If mutated value is empty, revert to previous value
-                        if not mutated_value:
+                        if mutated_value == '':
                             print(f"Mutated value became empty, reverting to previous value: {elem.text}")
                             mutated_value = elem.text  # Restore previous value
 
@@ -592,7 +596,7 @@ class _TCPHandler:
 
                         # Debugging messages
                         print(f"\n{'=' * 40}")
-                        print(f"[{element_name}] Iteration {iteration+1}: Mutated using {mutation_func.__name__}")
+                        print(f"[{element_name}] Iteration {iteration+1}")
                         print(f"Mutated value: {mutated_value}")
                         print(f"Fuzzed XML:\n{fuzzed_xml}")
                         print(f"{'=' * 40}\n")
@@ -677,24 +681,100 @@ class _TCPHandler:
         print(f"{'=' * 40}\n")
 
 
-    def value_flip(self, value):
+    # Mutation functions for each element
+    def mutate_ProtocolNamespace(self, value):
+        # Ensure value is a string of length <= 100
+        # Mutate the string but keep length <= 100
+        mutation_funcs = [self.value_flip_string, self.random_value_string, self.random_deletion_string, self.random_insertion_string]
+        mutated_value = random.choice(mutation_funcs)(value)
+        if len(mutated_value) > 100:
+            mutated_value = mutated_value[:100]
+        return mutated_value
+
+    def mutate_VersionNumberMajor(self, value):
+        # Mutate the unsigned integer
+        value_int = self.safe_int(value, default=1)
+        mutated_value_int = self.mutate_unsigned_int(value_int)
+        return str(mutated_value_int)
+
+    def mutate_VersionNumberMinor(self, value):
+        # Mutate the unsigned integer
+        value_int = self.safe_int(value, default=1)
+        mutated_value_int = self.mutate_unsigned_int(value_int)
+        return str(mutated_value_int)
+
+    def mutate_SchemaID(self, value):
+        # Mutate the unsigned byte (0-255)
+        value_int = self.safe_int(value, default=0)
+        mutated_value_int = self.mutate_unsigned_byte(value_int)
+        return str(mutated_value_int)
+
+    def mutate_Priority(self, value):
+        # Mutate the unsigned byte between 1 and 20
+        value_int = self.safe_int(value, default=1)
+        mutated_value_int = self.mutate_priority(value_int)
+        return str(mutated_value_int)
+
+    # Helper functions for mutations
+
+    def safe_int(self, value, default=0):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    def mutate_unsigned_int(self, value):
+        # Generate a random unsigned int (non-negative integer)
+        # Apply small mutations to the value
+        mutation = random.choice(['increment', 'decrement', 'random'])
+        if mutation == 'increment':
+            value += random.randint(1, 10)
+        elif mutation == 'decrement':
+            value = max(0, value - random.randint(1, 10))
+        elif mutation == 'random':
+            value = random.randint(0, value + 100)
+        return value
+
+    def mutate_unsigned_byte(self, value):
+        # Generate a random unsigned byte (0-255)
+        mutation = random.choice(['increment', 'decrement', 'random'])
+        if mutation == 'increment':
+            value = min(255, value + random.randint(1, 10))
+        elif mutation == 'decrement':
+            value = max(0, value - random.randint(1, 10))
+        elif mutation == 'random':
+            value = random.randint(0, 255)
+        return value
+
+    def mutate_priority(self, value):
+        # Generate a random value between 1 and 20
+        mutation = random.choice(['increment', 'decrement', 'random'])
+        if mutation == 'increment':
+            value = min(20, value + random.randint(1, 5))
+        elif mutation == 'decrement':
+            value = max(1, value - random.randint(1, 5))
+        elif mutation == 'random':
+            value = random.randint(1, 20)
+        return value
+
+    def value_flip_string(self, value):
         if len(value) < 2:
-            return value  # Cannot swap if less than two characters
+            return value
         idx1, idx2 = random.sample(range(len(value)), 2)
         value_list = list(value)
         value_list[idx1], value_list[idx2] = value_list[idx2], value_list[idx1]
         return ''.join(value_list)
 
-    def random_value(self, value):
+    def random_value_string(self, value):
         if len(value) == 0:
             return value
         idx = random.randrange(len(value))
-        new_char = chr(random.randint(33, 126))
+        new_char = random.choice(string.printable)
         value_list = list(value)
         value_list[idx] = new_char
         return ''.join(value_list)
 
-    def random_deletion(self, value):
+    def random_deletion_string(self, value):
         if len(value) == 0:
             return value
         idx = random.randrange(len(value))
@@ -702,21 +782,13 @@ class _TCPHandler:
         del value_list[idx]
         return ''.join(value_list)
 
-    def random_insertion(self, value):
-        if len(value) == 0:
-            return value
-
+    def random_insertion_string(self, value):
         # Randomly select insertion position
         insert_idx = random.randrange(len(value)+1)
-
-        # Randomly select character to insert (letters and digits)
-        random_char = random.choice(string.ascii_letters + string.digits)
-
-        # Convert string to list and insert
+        # Randomly select character to insert
+        random_char = random.choice(string.printable)
         value_list = list(value)
         value_list.insert(insert_idx, random_char)
-
-        # Convert list back to string and return
         return ''.join(value_list)
 
     def buildV2G(self, payload):
