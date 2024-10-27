@@ -571,6 +571,7 @@ class _TCPHandler:
         crash_inputs = self.state.get('crash_inputs', [])
         total_attempts = self.state.get('total_attempts', 0)
         total_crashes = self.state.get('total_crashes', 0)
+        mutated_values = self.state.get('mutated_values', {})
 
         for idx in range(current_element_index, len(elements_to_modify)):
             element_name = elements_to_modify[idx]
@@ -580,9 +581,14 @@ class _TCPHandler:
             # Find the element
             for elem in root.iter():
                 if elem.tag == element_name:
-                    # Assign default value if empty
-                    if not elem.text:
-                        elem.text = "1"  # Assign default value "1"
+                    # Set elem.text to saved mutated value if exists
+                    saved_mutated_value = mutated_values.get(element_name)
+                    if saved_mutated_value is not None:
+                        elem.text = saved_mutated_value
+                    else:
+                        # Assign default value if empty
+                        if not elem.text:
+                            elem.text = "1"  # Assign default value "1"
 
                     start_iteration = iteration_count.get(element_name, 0)
 
@@ -596,6 +602,9 @@ class _TCPHandler:
                             mutated_value = elem.text  # Restore previous value
 
                         elem.text = mutated_value
+
+                        # Update mutated_values in state
+                        self.state['mutated_values'][element_name] = mutated_value
 
                         # Serialize mutated XML
                         fuzzed_xml = ET.tostring(root, encoding='unicode')
@@ -628,6 +637,9 @@ class _TCPHandler:
                         # Update iteration count
                         self.state['iterations'][element_name] = iteration + 1
 
+                        # Save state after each iteration
+                        self.save_state()
+
                         # Wait for response
                         response = self.response_received.wait(timeout=2)  # Wait for up to 2 seconds
 
@@ -654,11 +666,14 @@ class _TCPHandler:
 
                         # Proceed to next iteration
 
-                    # Reset iteration count for this element
+                    # Reset iteration count and mutated value for this element
                     self.state['iterations'][element_name] = 0
+                    self.state['mutated_values'][element_name] = None
 
                     # Move to next element
                     self.state['current_element_index'] = idx + 1
+                    # Save state after finishing an element
+                    self.save_state()
 
         # Fuzzing completed for all elements
         print("Fuzzing completed for all elements.")
@@ -821,7 +836,8 @@ class _TCPHandler:
                 'crash_info': [],
                 'total_attempts': 0,
                 'total_crashes': 0,
-                'crash_inputs': []
+                'crash_inputs': [],
+                'mutated_values': {}  # Initialize mutated_values
             }
             for element in self.elements_to_modify:
                 self.state['iterations'][element] = 0
